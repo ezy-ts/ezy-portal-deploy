@@ -13,6 +13,29 @@ fi
 # Default values
 REGISTRY="ghcr.io"
 GITHUB_ORG="${GITHUB_ORG:-ezy-prop}"
+
+# Module image names
+declare -A MODULE_IMAGES=(
+    ["portal"]="ezy-portal"
+    ["bp"]="ezy-portal-bp"
+    ["items"]="ezy-portal-items"
+    ["prospects"]="ezy-portal-prospects"
+)
+
+# Get image name for a module (local or GHCR)
+get_module_image() {
+    local module="$1"
+    local use_local="${USE_LOCAL_IMAGES:-false}"
+    local image_name="${MODULE_IMAGES[$module]:-ezy-portal}"
+
+    if [[ "$use_local" == "true" ]]; then
+        echo "$image_name"
+    else
+        echo "${REGISTRY}/${GITHUB_ORG}/${image_name}/${image_name}"
+    fi
+}
+
+# Legacy compatibility
 IMAGE_NAME="ezy-portal"
 FULL_IMAGE="${REGISTRY}/${GITHUB_ORG}/${IMAGE_NAME}/${IMAGE_NAME}"
 
@@ -21,6 +44,12 @@ FULL_IMAGE="${REGISTRY}/${GITHUB_ORG}/${IMAGE_NAME}/${IMAGE_NAME}"
 # -----------------------------------------------------------------------------
 
 docker_login_ghcr() {
+    # Skip GHCR login if using local images
+    if [[ "${USE_LOCAL_IMAGES:-false}" == "true" ]]; then
+        print_info "Using local images - skipping GHCR login"
+        return 0
+    fi
+
     local username="${GITHUB_USERNAME:-$GITHUB_ORG}"
 
     if [[ -z "${GITHUB_PAT:-}" ]]; then
@@ -49,7 +78,23 @@ docker_logout_ghcr() {
 
 docker_pull_image() {
     local tag="${1:-latest}"
-    local image="${FULL_IMAGE}:${tag}"
+    local module="${2:-portal}"
+    local image
+
+    image="$(get_module_image "$module"):${tag}"
+
+    # Skip pull if using local images
+    if [[ "${USE_LOCAL_IMAGES:-false}" == "true" ]]; then
+        print_info "Using local image: $image"
+        if docker image inspect "$image" &>/dev/null; then
+            print_success "Local image found: $image"
+            return 0
+        else
+            print_error "Local image not found: $image"
+            print_info "Build the image first or remove --local flag"
+            return 1
+        fi
+    fi
 
     print_info "Pulling image: $image"
 
@@ -60,6 +105,32 @@ docker_pull_image() {
         print_error "Failed to pull: $image"
         return 1
     fi
+}
+
+# Pull all images for selected modules
+docker_pull_modules() {
+    local tag="${1:-latest}"
+    local modules="${2:-portal}"
+    local failed=0
+
+    IFS=',' read -ra module_array <<< "$modules"
+
+    for module in "${module_array[@]}"; do
+        module=$(echo "$module" | xargs)  # trim whitespace
+        if [[ -n "$module" ]]; then
+            print_subsection "Module: $module"
+            if ! docker_pull_image "$tag" "$module"; then
+                ((failed++))
+            fi
+        fi
+    done
+
+    if [[ $failed -gt 0 ]]; then
+        print_error "Failed to pull $failed module(s)"
+        return 1
+    fi
+
+    return 0
 }
 
 docker_image_exists() {
@@ -100,6 +171,61 @@ get_compose_file() {
     else
         echo "${deploy_root}/docker/docker-compose.portal-only.yml"
     fi
+}
+
+# Get compose files for selected modules
+# Returns space-separated list of -f flags for docker compose
+# Modules must be in dependency order: items -> bp -> prospects
+get_compose_files_for_modules() {
+    local infra_mode="${1:-full}"
+    local modules="${2:-portal}"
+    local deploy_root="${DEPLOY_ROOT:-$(get_deploy_root)}"
+
+    local compose_args=""
+    local base_compose
+
+    # Base compose file
+    base_compose=$(get_compose_file "$infra_mode")
+    compose_args="-f $base_compose"
+
+    # Module order (dependencies first)
+    local ordered_modules=("items" "bp" "prospects")
+
+    # Add module-specific compose files in dependency order
+    for module in "${ordered_modules[@]}"; do
+        # Check if this module is in the requested modules
+        if [[ ",$modules," == *",$module,"* ]]; then
+            local module_compose="${deploy_root}/docker/docker-compose.module-${module}.yml"
+            if [[ -f "$module_compose" ]]; then
+                compose_args="$compose_args -f $module_compose"
+            else
+                print_warning "Module compose file not found: $module_compose"
+            fi
+        fi
+    done
+
+    echo "$compose_args"
+}
+
+# Generate environment variables for module images
+generate_module_image_vars() {
+    local tag="${1:-latest}"
+    local modules="${2:-portal}"
+    local use_local="${USE_LOCAL_IMAGES:-false}"
+
+    IFS=',' read -ra module_array <<< "$modules"
+
+    for module in "${module_array[@]}"; do
+        module=$(echo "$module" | xargs)  # trim whitespace
+        if [[ -n "$module" ]]; then
+            local var_name
+            var_name="$(echo "${module}_IMAGE" | tr '[:lower:]' '[:upper:]')"
+            local image
+            image="$(get_module_image "$module")"
+            export "$var_name=$image"
+            export "${var_name}_TAG=$tag"
+        fi
+    done
 }
 
 docker_compose_up() {

@@ -1,0 +1,36 @@
+# =============================================================================
+# EZY Portal - Micro-Frontend Module Routes (Template)
+# =============================================================================
+# This file is a template for micro-frontend module routing.
+# Copy and rename to modules.conf when deploying micro-frontends.
+#
+# The routes use dynamic DNS resolution (resolver directive in nginx.conf)
+# to handle cases where modules may not be deployed.
+# =============================================================================
+
+# Note: These routes are included in the main HTTPS server block
+# They should be added to portal-https.conf or mounted separately
+
+# Business Partners Module
+# location /mfe/bp/ {
+#     set $bp_backend "http://bp:3000";
+#     proxy_pass $bp_backend/;
+#     include snippets/proxy-headers-common.conf;
+#     proxy_intercept_errors off;
+# }
+
+# Items Module
+# location /mfe/items/ {
+#     set $items_backend "http://items:3000";
+#     proxy_pass $items_backend/;
+#     include snippets/proxy-headers-common.conf;
+#     proxy_intercept_errors off;
+# }
+
+# Prospects Module
+# location /mfe/prospects/ {
+#     set $prospects_backend "http://prospects:3000";
+#     proxy_pass $prospects_backend/;
+#     include snippets/proxy-headers-common.conf;
+#     proxy_intercept_errors off;
+# }

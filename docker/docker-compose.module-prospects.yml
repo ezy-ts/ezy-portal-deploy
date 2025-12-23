@@ -1,0 +1,43 @@
+# =============================================================================
+# EZY Portal - Prospects Micro-Frontend Module
+# =============================================================================
+# Overlay file for the Prospects module.
+# Depends on: bp module (which depends on items)
+# Use with: docker compose -f docker-compose.full.yml -f docker-compose.module-items.yml -f docker-compose.module-bp.yml -f docker-compose.module-prospects.yml up -d
+# =============================================================================
+
+services:
+  # ---------------------------------------------------------------------------
+  # Prospects Micro-Frontend
+  # ---------------------------------------------------------------------------
+  prospects:
+    image: ${PROSPECTS_IMAGE:-ghcr.io/ezy-prop/ezy-portal-prospects/ezy-portal-prospects}:${VERSION:-latest}
+    container_name: ${PROJECT_NAME:-ezy-portal}-prospects
+    expose:
+      - "3000"
+    environment:
+      - NODE_ENV=production
+      - PORTAL_URL=http://portal:8080
+      - PORTAL_API_KEY=${PROSPECTS_API_KEY}
+      - BP_URL=http://bp:3000
+      - ITEMS_URL=http://items:3000
+      - MODULE_NAME=prospects
+    depends_on:
+      portal:
+        condition: service_healthy
+      bp:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:3000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+    restart: unless-stopped
+    networks:
+      - portal-network
+
+networks:
+  portal-network:
+    external: true
+    name: ${PROJECT_NAME:-ezy-portal}-network

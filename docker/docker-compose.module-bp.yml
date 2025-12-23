@@ -1,0 +1,42 @@
+# =============================================================================
+# EZY Portal - Business Partners Micro-Frontend Module
+# =============================================================================
+# Overlay file for the Business Partners module.
+# Depends on: items module
+# Use with: docker compose -f docker-compose.full.yml -f docker-compose.module-items.yml -f docker-compose.module-bp.yml up -d
+# =============================================================================
+
+services:
+  # ---------------------------------------------------------------------------
+  # Business Partners Micro-Frontend
+  # ---------------------------------------------------------------------------
+  bp:
+    image: ${BP_IMAGE:-ghcr.io/ezy-prop/ezy-portal-bp/ezy-portal-bp}:${VERSION:-latest}
+    container_name: ${PROJECT_NAME:-ezy-portal}-bp
+    expose:
+      - "3000"
+    environment:
+      - NODE_ENV=production
+      - PORTAL_URL=http://portal:8080
+      - PORTAL_API_KEY=${BP_API_KEY}
+      - ITEMS_URL=http://items:3000
+      - MODULE_NAME=bp
+    depends_on:
+      portal:
+        condition: service_healthy
+      items:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:3000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+    restart: unless-stopped
+    networks:
+      - portal-network
+
+networks:
+  portal-network:
+    external: true
+    name: ${PROJECT_NAME:-ezy-portal}-network

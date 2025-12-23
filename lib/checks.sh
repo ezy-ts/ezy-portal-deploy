@@ -69,6 +69,12 @@ check_docker_permissions() {
 # -----------------------------------------------------------------------------
 
 check_github_pat() {
+    # Skip GITHUB_PAT check if using local images
+    if [[ "${USE_LOCAL_IMAGES:-false}" == "true" ]]; then
+        print_info "Using local images - GITHUB_PAT not required"
+        return 0
+    fi
+
     if [[ -z "${GITHUB_PAT:-}" ]]; then
         print_error "GITHUB_PAT environment variable is not set"
         echo ""
@@ -79,6 +85,7 @@ check_github_pat() {
         echo ""
         echo "   export GITHUB_PAT=ghp_your_token_here"
         echo ""
+        print_info "Alternatively, use --local flag to use locally built images"
         return 1
     fi
     print_success "GITHUB_PAT is set"
@@ -86,6 +93,12 @@ check_github_pat() {
 }
 
 check_ghcr_login() {
+    # Skip GHCR login if using local images
+    if [[ "${USE_LOCAL_IMAGES:-false}" == "true" ]]; then
+        print_info "Using local images - skipping GHCR authentication"
+        return 0
+    fi
+
     local username="${GITHUB_USERNAME:-ezy-prop}"
 
     print_info "Attempting to login to GitHub Container Registry..."
@@ -336,8 +349,12 @@ run_all_prerequisite_checks() {
     check_docker_compose_v2 || ((failed++))
     check_docker_permissions || ((failed++))
 
-    print_subsection "GitHub Container Registry"
-    check_github_pat || ((failed++))
+    if [[ "${USE_LOCAL_IMAGES:-false}" == "true" ]]; then
+        print_subsection "Image Source: Local"
+    else
+        print_subsection "Image Source: GitHub Container Registry"
+        check_github_pat || ((failed++))
+    fi
 
     print_subsection "System Resources"
     check_disk_space 5 || :  # Warning only

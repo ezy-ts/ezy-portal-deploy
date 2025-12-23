@@ -15,15 +15,17 @@ name: ${PROJECT_NAME:-ezy-portal}
 
 services:
   # ---------------------------------------------------------------------------
-  # Portal Application
+  # Portal Application (Core Shell)
   # ---------------------------------------------------------------------------
   portal:
-    image: ${PORTAL_IMAGE:-ezy-portal}:${VERSION:-latest}
+    image: ${PORTAL_IMAGE:-ghcr.io/ezy-prop/ezy-portal/ezy-portal}:${VERSION:-latest}
     container_name: ${PROJECT_NAME:-ezy-portal}
     expose:
       - "8080"
     env_file:
       - ../portal.env
+    environment:
+      - MODULES=${MODULES:-portal}
     volumes:
       - portal-uploads:/app/uploads
       - portal-logs:/app/logs
