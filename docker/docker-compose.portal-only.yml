@@ -22,7 +22,7 @@ services:
   # Portal Application
   # ---------------------------------------------------------------------------
   portal:
-    image: ghcr.io/ezy-prop/ezy-portal/ezy-portal:${VERSION:-latest}
+    image: ${PORTAL_IMAGE:-ezy-portal}:${VERSION:-latest}
     container_name: ${PROJECT_NAME:-ezy-portal}
     expose:
       - "8080"
