@@ -11,6 +11,8 @@
 #   docker compose -f docker/docker-compose.full.yml --env-file portal.env up -d
 # =============================================================================
 
+name: ${PROJECT_NAME:-ezy-portal}
+
 services:
   # ---------------------------------------------------------------------------
   # Portal Application

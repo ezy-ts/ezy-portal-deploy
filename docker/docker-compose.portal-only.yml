@@ -17,6 +17,8 @@
 #   - Configure connection strings in portal.env
 # =============================================================================
 
+name: ${PROJECT_NAME:-ezy-portal}
+
 services:
   # ---------------------------------------------------------------------------
   # Portal Application
