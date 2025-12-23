@@ -48,7 +48,7 @@ services:
   # Nginx Reverse Proxy
   # ---------------------------------------------------------------------------
   nginx:
-    image: nginx:1.27-alpine
+    image: nginx:alpine
     container_name: ${PROJECT_NAME:-ezy-portal}-nginx
     ports:
       - "${HTTPS_PORT:-443}:443"
