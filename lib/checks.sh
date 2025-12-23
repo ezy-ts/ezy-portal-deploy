@@ -65,6 +65,50 @@ check_docker_permissions() {
 }
 
 # -----------------------------------------------------------------------------
+# Customer Module Prerequisites
+# -----------------------------------------------------------------------------
+
+check_yq_installed() {
+    if ! check_command_exists yq; then
+        print_error "yq is not installed (required for YAML parsing)"
+        print_info "Install yq:"
+        print_info "  sudo wget -qO /usr/local/bin/yq https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64"
+        print_info "  sudo chmod +x /usr/local/bin/yq"
+        return 1
+    fi
+    print_success "yq is installed"
+    return 0
+}
+
+check_gh_cli_installed() {
+    if ! check_command_exists gh; then
+        print_warning "gh CLI is not installed (required for private repos)"
+        print_info "Install gh CLI: https://cli.github.com/manual/installation"
+        return 1
+    fi
+
+    # Check if authenticated
+    if ! gh auth status &>/dev/null; then
+        print_warning "gh CLI is not authenticated"
+        print_info "Run: gh auth login"
+        return 1
+    fi
+
+    print_success "gh CLI is installed and authenticated"
+    return 0
+}
+
+check_jq_installed() {
+    if ! check_command_exists jq; then
+        print_warning "jq is not installed (recommended for module registry)"
+        print_info "Install jq: sudo apt install jq"
+        return 1
+    fi
+    print_success "jq is installed"
+    return 0
+}
+
+# -----------------------------------------------------------------------------
 # GitHub Container Registry Checks
 # -----------------------------------------------------------------------------
 
