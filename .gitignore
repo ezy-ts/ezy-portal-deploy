@@ -28,6 +28,7 @@ nginx/conf.d/customer/*.conf
 !nginx/conf.d/customer/.gitkeep
 
 # Report Generator (runtime data, structure kept)
+report-generator/reports/**
 report-generator/output/**
 report-generator/logs/**
 !report-generator/**/
