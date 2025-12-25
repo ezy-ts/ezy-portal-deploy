@@ -420,12 +420,18 @@ main() {
     print_info "API Prefix: $MODULE_API_PREFIX"
     print_info "MFE Prefix: $MODULE_MFE_PREFIX"
     if [[ -n "$MODULE_DEPENDENCIES" ]]; then
-        print_info "Dependencies: $MODULE_DEPENDENCIES"
+        print_info "Module Dependencies: $MODULE_DEPENDENCIES"
+    fi
+    if [[ -n "$MODULE_SERVICE_DEPENDENCIES" ]]; then
+        print_info "Service Dependencies: $MODULE_SERVICE_DEPENDENCIES"
     fi
 
     # Check dependencies
     print_section "Step 4: Check Dependencies"
     if ! check_customer_module_dependencies "$MODULE_DEPENDENCIES"; then
+        exit 1
+    fi
+    if ! check_service_dependencies "$MODULE_SERVICE_DEPENDENCIES"; then
         exit 1
     fi
     print_success "All dependencies satisfied"

@@ -93,8 +93,9 @@ parse_manifest() {
     # Database info
     MODULE_DB_SCHEMA=$(yq '.module.database.schema // ""' "$manifest_file" | tr -d '"')
 
-    # Dependencies (as comma-separated string)
+    # Dependencies (as comma-separated strings)
     MODULE_DEPENDENCIES=$(yq '.module.dependencies.modules // [] | join(",")' "$manifest_file" | tr -d '"')
+    MODULE_SERVICE_DEPENDENCIES=$(yq '.module.dependencies.services // [] | join(",")' "$manifest_file" | tr -d '"')
 
     # Environment
     MODULE_API_KEY_ENV_VAR=$(yq '.module.environment.apiKeyEnvVar // ""' "$manifest_file" | tr -d '"')
@@ -130,7 +131,7 @@ parse_manifest() {
     # Export for use by calling script
     export MODULE_NAME MODULE_DISPLAY_NAME MODULE_VENDOR MODULE_VERSION
     export MODULE_IMAGE_REPO MODULE_IMAGE_TAG MODULE_PORT MODULE_HEALTH_ENDPOINT
-    export MODULE_DB_SCHEMA MODULE_DEPENDENCIES MODULE_API_KEY_ENV_VAR
+    export MODULE_DB_SCHEMA MODULE_DEPENDENCIES MODULE_SERVICE_DEPENDENCIES MODULE_API_KEY_ENV_VAR
     export MODULE_API_PREFIX MODULE_MFE_PREFIX MODULE_HAS_CUSTOM_NGINX
 
     return 0
@@ -171,6 +172,44 @@ check_customer_module_dependencies() {
             print_success "Dependency '$dep' is running and healthy"
         else
             print_warning "Dependency '$dep' is running but not healthy (status: $health)"
+        fi
+    done
+
+    return 0
+}
+
+# Check if required service dependencies are running and healthy
+# Services are standalone containers like report-generator-api
+check_service_dependencies() {
+    local deps="$1"
+    local project_name="${PROJECT_NAME:-ezy-portal}"
+
+    if [[ -z "$deps" ]]; then
+        return 0
+    fi
+
+    print_info "Checking service dependencies..."
+
+    IFS=',' read -ra dep_array <<< "$deps"
+    for dep in "${dep_array[@]}"; do
+        dep=$(echo "$dep" | xargs)  # trim whitespace
+        [[ -z "$dep" ]] && continue
+
+        local container="${project_name}-${dep}"
+
+        if ! docker ps --format '{{.Names}}' | grep -q "^${container}$"; then
+            print_error "Required service '$dep' is not running"
+            print_info "Install it first with: ./add-report-generator.sh api"
+            return 1
+        fi
+
+        local health
+        health=$(docker inspect --format='{{.State.Health.Status}}' "$container" 2>/dev/null || echo "none")
+
+        if [[ "$health" == "healthy" ]]; then
+            print_success "Service '$dep' is running and healthy"
+        else
+            print_warning "Service '$dep' is running but not healthy (status: $health)"
         fi
     done
 

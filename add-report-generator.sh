@@ -349,6 +349,15 @@ main() {
         wait_for_service_healthy "$svc" || true
     done
 
+    # Save PRINT_SERVER_URL if API was installed
+    for svc in "${services[@]}"; do
+        if [[ "$svc" == "api" ]]; then
+            save_config_value "PRINT_SERVER_URL" "http://report-generator-api:5127" "$DEPLOY_ROOT/portal.env"
+            print_info "Added PRINT_SERVER_URL to portal.env"
+            break
+        fi
+    done
+
     # Success output
     echo ""
     print_section "Installation Complete!"
