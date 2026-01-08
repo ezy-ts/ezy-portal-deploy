@@ -74,8 +74,9 @@ docker_pull_image() {
 
     image="$(get_module_image "$module"):${tag}"
 
-    # Check if image already exists locally
-    if docker image inspect "$image" &>/dev/null; then
+    # Always pull for 'latest' tag to ensure we have the newest version
+    # For specific version tags, skip if already exists locally
+    if [[ "$tag" != "latest" ]] && docker image inspect "$image" &>/dev/null; then
         print_success "Image found locally: $image"
         return 0
     fi
@@ -225,8 +226,14 @@ docker_compose_up() {
     local compose_file="$1"
     local env_file="${2:-${DEPLOY_ROOT}/portal.env}"
     local services="${3:-}"
+    local pull_policy="${4:-}"
 
     local cmd="docker compose -f $compose_file --env-file $env_file up -d"
+
+    # Add --pull always if requested (use for 'latest' tags)
+    if [[ "$pull_policy" == "always" ]]; then
+        cmd="$cmd --pull always"
+    fi
 
     if [[ -n "$services" ]]; then
         cmd="$cmd $services"

@@ -262,7 +262,13 @@ start_module() {
     print_info "Image: $image:$VERSION"
 
     # Use --no-recreate to avoid touching existing containers (portal, infra)
-    local cmd="docker compose $compose_args --env-file $DEPLOY_ROOT/portal.env up -d --no-recreate $module"
+    # Use --pull always for 'latest' to ensure we get the newest images
+    local pull_flag=""
+    if [[ "$VERSION" == "latest" ]]; then
+        pull_flag="--pull always"
+    fi
+
+    local cmd="docker compose $compose_args --env-file $DEPLOY_ROOT/portal.env up -d --no-recreate $pull_flag $module"
     log_info "Running: $cmd"
 
     if eval "$cmd"; then

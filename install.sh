@@ -378,7 +378,13 @@ step_start_services() {
     fi
 
     # Start services
-    local cmd="docker compose -f $compose_file --env-file $DEPLOY_ROOT/portal.env up -d"
+    # Use --pull always for 'latest' to ensure we get the newest images
+    local pull_flag=""
+    if [[ "$BACKEND_VERSION" == "latest" ]]; then
+        pull_flag="--pull always"
+    fi
+
+    local cmd="docker compose -f $compose_file --env-file $DEPLOY_ROOT/portal.env up -d $pull_flag"
     print_info "Running: $cmd"
     log_info "Running: $cmd"
 
