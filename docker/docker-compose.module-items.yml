@@ -1,61 +1,79 @@
 # =============================================================================
-# EZY Portal - Items Micro-Frontend Module
+# EZY Portal - Items Module
 # =============================================================================
-# Overlay file for the Items module.
-# Use with: docker compose -f docker-compose.full.yml -f docker-compose.module-items.yml up -d
+# Backend-only container for items microservice.
+# Frontend is served as static files from /dist/mff/items/
+#
+# Usage:
+#   docker compose -f docker-compose.full.yml \
+#                  -f docker-compose.module-items.yml \
+#                  --env-file ../portal.env up -d
 # =============================================================================
 
 services:
-  # ---------------------------------------------------------------------------
-  # Items Micro-Frontend
-  # ---------------------------------------------------------------------------
   items:
-    image: ${ITEMS_IMAGE:-ghcr.io/ezy-ts/ezy-portal-items}:${VERSION:-latest}
+    image: ${ITEMS_IMAGE:-ghcr.io/ezy-ts/ezy-portal-items}:${ITEMS_VERSION:-latest}
     container_name: ${PROJECT_NAME:-ezy-portal}-items
     expose:
       - "5009"
     environment:
-      # Database (shared with portal)
-      - DB_HOST=postgres
-      - DB_PORT=5432
+      # Server configuration
+      - PORT=5009
+      - GIN_MODE=release
+      - LOG_LEVEL=${LOG_LEVEL:-info}
+      - TRUSTED_PROXIES=none
+
+      # Database configuration
+      - DB_HOST=${DB_HOST:-postgres}
+      - DB_PORT=${DB_PORT:-5432}
       - DB_USER=${POSTGRES_USER:-postgres}
       - DB_PASSWORD=${POSTGRES_PASSWORD}
       - DB_NAME=${POSTGRES_DB:-portal}
       - DB_SCHEMA=items,public
-      # Portal Integration
+      - DB_SSLMODE=${DB_SSLMODE:-disable}
+      - DB_TIMEZONE=${DB_TIMEZONE:-UTC}
+
+      # Portal integration
       - PORTAL_API_URL=http://portal:8080
       - PORTAL_API_KEY=${ITEMS_API_KEY}
       - MICRO_SERVICE_ID=itemsApp
-      # Server
-      - GIN_MODE=release
-      - PORT=5009
-      # Service URL for registration (Docker network hostname)
       - SERVICE_URL=http://items:5009
-      # RabbitMQ (optional)
+
+      # RabbitMQ configuration
       - RABBITMQ_ENABLED=${RabbitMq__Enabled:-false}
-      - RABBITMQ_HOST=${RabbitMq__Host:-rabbitmq}
-      - RABBITMQ_PORT=${RabbitMq__Port:-5672}
-      - RABBITMQ_USER=${RabbitMq__User:-portal}
-      - RABBITMQ_PASSWORD=${RabbitMq__Password}
-      - RABBITMQ_VHOST=/
-      # Logging
-      - LOG_DIR=/app/logs
-    volumes:
-      - ../logs/items:/app/logs
+      - RABBITMQ_HOST=${RABBITMQ_HOST:-rabbitmq}
+      - RABBITMQ_PORT=${RABBITMQ_PORT:-5672}
+      - RABBITMQ_USER=${RABBITMQ_USER:-portal}
+      - RABBITMQ_PASSWORD=${RABBITMQ_PASSWORD}
+      - RABBITMQ_VHOST=${RABBITMQ_VHOST:-/}
+      - RABBITMQ_TENANT_EVENTS_EXCHANGE=${RABBITMQ_TENANT_EVENTS_EXCHANGE:-tenant.events}
+
+      # Metrics (optional)
+      - METRICS_ENABLED=${METRICS_ENABLED:-false}
+      - METRICS_PORT=9009
+
     depends_on:
       portal:
         condition: service_healthy
+
     healthcheck:
       test: ["CMD", "wget", "-q", "-O", "-", "http://localhost:5009/health"]
       interval: 30s
       timeout: 10s
+      start_period: 20s
       retries: 5
-      start_period: 30s
+
     restart: unless-stopped
+
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
     networks:
       - portal-network
 
 networks:
   portal-network:
     external: true
-    name: ${PROJECT_NAME:-ezy-portal}-network

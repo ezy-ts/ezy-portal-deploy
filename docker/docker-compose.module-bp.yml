@@ -1,66 +1,81 @@
 # =============================================================================
-# EZY Portal - Business Partners Micro-Frontend Module
+# EZY Portal - Business Partners Module
 # =============================================================================
-# Overlay file for the Business Partners module.
-# Depends on: items module
-# Use with: docker compose -f docker-compose.full.yml -f docker-compose.module-items.yml -f docker-compose.module-bp.yml up -d
+# Backend-only container for business-partners microservice.
+# Frontend is served as static files from /dist/mff/bp/
+#
+# Usage:
+#   docker compose -f docker-compose.full.yml \
+#                  -f docker-compose.module-bp.yml \
+#                  --env-file ../portal.env up -d
 # =============================================================================
 
 services:
-  # ---------------------------------------------------------------------------
-  # Business Partners Micro-Frontend
-  # ---------------------------------------------------------------------------
   bp:
-    image: ${BP_IMAGE:-ghcr.io/ezy-ts/ezy-portal-bp}:${VERSION:-latest}
+    image: ${BP_IMAGE:-ghcr.io/ezy-ts/ezy-portal-bp}:${BP_VERSION:-latest}
     container_name: ${PROJECT_NAME:-ezy-portal}-bp
     expose:
       - "5008"
     environment:
-      # Database (shared with portal)
-      - DB_HOST=postgres
-      - DB_PORT=5432
+      # Server configuration
+      - PORT=5008
+      - GIN_MODE=release
+      - LOG_LEVEL=${LOG_LEVEL:-info}
+      - TRUSTED_PROXIES=none
+
+      # Database configuration
+      - DB_HOST=${DB_HOST:-postgres}
+      - DB_PORT=${DB_PORT:-5432}
       - DB_USER=${POSTGRES_USER:-postgres}
       - DB_PASSWORD=${POSTGRES_PASSWORD}
       - DB_NAME=${POSTGRES_DB:-portal}
       - DB_SCHEMA=business_partners,public
-      # Portal Integration
+      - DB_SSLMODE=${DB_SSLMODE:-disable}
+      - DB_TIMEZONE=${DB_TIMEZONE:-UTC}
+
+      # Portal integration
       - PORTAL_API_URL=http://portal:8080
       - PORTAL_API_KEY=${BP_API_KEY}
       - MICRO_SERVICE_ID=bpApp
-      # Server
-      - GIN_MODE=release
-      - PORT=5008
-      # Service URL for registration (Docker network hostname)
       - SERVICE_URL=http://bp:5008
-      # RabbitMQ (optional)
+
+      # RabbitMQ configuration
       - RABBITMQ_ENABLED=${RabbitMq__Enabled:-false}
-      - RABBITMQ_HOST=${RabbitMq__Host:-rabbitmq}
-      - RABBITMQ_PORT=${RabbitMq__Port:-5672}
-      - RABBITMQ_USER=${RabbitMq__User:-portal}
-      - RABBITMQ_PASSWORD=${RabbitMq__Password}
-      - RABBITMQ_VHOST=/
+      - RABBITMQ_HOST=${RABBITMQ_HOST:-rabbitmq}
+      - RABBITMQ_PORT=${RABBITMQ_PORT:-5672}
+      - RABBITMQ_USER=${RABBITMQ_USER:-portal}
+      - RABBITMQ_PASSWORD=${RABBITMQ_PASSWORD}
+      - RABBITMQ_VHOST=${RABBITMQ_VHOST:-/}
+      - RABBITMQ_TENANT_EVENTS_EXCHANGE=${RABBITMQ_TENANT_EVENTS_EXCHANGE:-tenant.events}
       - BP_EVENTS_EXCHANGE=bp.events
       - PROSPECT_EVENTS_EXCHANGE=prospect.events
-      # Logging
-      - LOG_DIR=/app/logs
-    volumes:
-      - ../logs/bp:/app/logs
+
+      # Metrics (optional)
+      - METRICS_ENABLED=${METRICS_ENABLED:-false}
+      - METRICS_PORT=9008
+
     depends_on:
       portal:
         condition: service_healthy
-      items:
-        condition: service_healthy
+
     healthcheck:
       test: ["CMD", "wget", "-q", "-O", "-", "http://localhost:5008/health"]
       interval: 30s
       timeout: 10s
+      start_period: 20s
       retries: 5
-      start_period: 30s
+
     restart: unless-stopped
+
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
     networks:
       - portal-network
 
 networks:
   portal-network:
     external: true
-    name: ${PROJECT_NAME:-ezy-portal}-network

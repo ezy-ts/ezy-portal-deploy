@@ -1,36 +1,27 @@
 # =============================================================================
 # EZY Portal - Micro-Frontend Module Routes (Template)
 # =============================================================================
-# This file is a template for micro-frontend module routing.
-# Copy and rename to modules.conf when deploying micro-frontends.
+# This file is a template for micro-frontend module routing reference.
 #
-# The routes use dynamic DNS resolution (resolver directive in nginx.conf)
-# to handle cases where modules may not be deployed.
+# All modules now use the separated frontend/backend pattern:
+# - Backend: Docker container serving API on internal port
+# - Frontend: Static files served from /dist/mff/[module]/
+#
+# Routes are configured directly in portal-https.conf.
 # =============================================================================
 
-# Note: These routes are included in the main HTTPS server block
-# They should be added to portal-https.conf or mounted separately
+# Items Module (separated frontend/backend - see portal-https.conf)
+# Backend API: http://items:5009
+# Frontend: Static files from /dist/mff/items/
 
-# Business Partners Module
-# location /mfe/bp/ {
-#     set $bp_backend "http://bp:3000";
-#     proxy_pass $bp_backend/;
-#     include snippets/proxy-headers-common.conf;
-#     proxy_intercept_errors off;
-# }
+# Business Partners Module (separated frontend/backend - see portal-https.conf)
+# Backend API: http://bp:5008
+# Frontend: Static files from /dist/mff/bp/
 
-# Items Module
-# location /mfe/items/ {
-#     set $items_backend "http://items:3000";
-#     proxy_pass $items_backend/;
-#     include snippets/proxy-headers-common.conf;
-#     proxy_intercept_errors off;
-# }
+# Prospects Module (separated frontend/backend - see portal-https.conf)
+# Backend API: http://prospects:5023
+# Frontend: Static files from /dist/mff/prospects/
 
-# Prospects Module
-# location /mfe/prospects/ {
-#     set $prospects_backend "http://prospects:3000";
-#     proxy_pass $prospects_backend/;
-#     include snippets/proxy-headers-common.conf;
-#     proxy_intercept_errors off;
-# }
+# Pricing-Tax Module (separated frontend/backend - see portal-https.conf)
+# Backend API: http://pricing-tax:5022
+# Frontend: Static files from /dist/mff/pricing-tax/

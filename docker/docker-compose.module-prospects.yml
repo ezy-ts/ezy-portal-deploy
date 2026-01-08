@@ -1,47 +1,82 @@
 # =============================================================================
-# EZY Portal - Prospects Micro-Frontend Module
+# EZY Portal - Prospects Module
 # =============================================================================
-# Overlay file for the Prospects module.
-# Depends on: bp module (which depends on items)
-# Use with: docker compose -f docker-compose.full.yml -f docker-compose.module-items.yml -f docker-compose.module-bp.yml -f docker-compose.module-prospects.yml up -d
+# Backend-only container for prospects microservice.
+# Frontend is served as static files from /dist/mff/prospects/
+#
+# Usage:
+#   docker compose -f docker-compose.full.yml \
+#                  -f docker-compose.module-prospects.yml \
+#                  --env-file ../portal.env up -d
 # =============================================================================
 
 services:
-  # ---------------------------------------------------------------------------
-  # Prospects Micro-Frontend
-  # ---------------------------------------------------------------------------
   prospects:
-    image: ${PROSPECTS_IMAGE:-ghcr.io/ezy-ts/ezy-portal-prospects}:${VERSION:-latest}
+    image: ${PROSPECTS_IMAGE:-ghcr.io/ezy-ts/ezy-portal-prospects}:${PROSPECTS_VERSION:-latest}
     container_name: ${PROJECT_NAME:-ezy-portal}-prospects
     expose:
-      - "3000"
+      - "5023"
     environment:
-      - NODE_ENV=production
-      - PORTAL_URL=http://portal:8080
+      # Server configuration
+      - PORT=5023
+      - GIN_MODE=release
+      - LOG_LEVEL=${LOG_LEVEL:-info}
+      - TRUSTED_PROXIES=none
+
+      # Database configuration
+      - DB_HOST=${DB_HOST:-postgres}
+      - DB_PORT=${DB_PORT:-5432}
+      - DB_USER=${POSTGRES_USER:-postgres}
+      - DB_PASSWORD=${POSTGRES_PASSWORD}
+      - DB_NAME=${POSTGRES_DB:-portal}
+      - DB_SCHEMA=prospects,public
+      - DB_SSLMODE=${DB_SSLMODE:-disable}
+      - DB_TIMEZONE=${DB_TIMEZONE:-UTC}
+
+      # Portal integration
+      - PORTAL_API_URL=http://portal:8080
       - PORTAL_API_KEY=${PROSPECTS_API_KEY}
-      - BP_URL=http://bp:3000
-      - ITEMS_URL=http://items:3000
-      - MODULE_NAME=prospects
-      # Logging
-      - LOG_DIR=/app/logs
-    volumes:
-      - ../logs/prospects:/app/logs
+      - MICRO_SERVICE_ID=prospectsApp
+      - SERVICE_URL=http://prospects:5023
+
+      # RabbitMQ configuration
+      - RABBITMQ_ENABLED=${RabbitMq__Enabled:-false}
+      - RABBITMQ_HOST=${RABBITMQ_HOST:-rabbitmq}
+      - RABBITMQ_PORT=${RABBITMQ_PORT:-5672}
+      - RABBITMQ_USER=${RABBITMQ_USER:-portal}
+      - RABBITMQ_PASSWORD=${RABBITMQ_PASSWORD}
+      - RABBITMQ_VHOST=${RABBITMQ_VHOST:-/}
+      - RABBITMQ_TENANT_EVENTS_EXCHANGE=${RABBITMQ_TENANT_EVENTS_EXCHANGE:-tenant.events}
+
+      # Encryption key for sensitive data
+      - ENCRYPTION_KEY=${PROSPECTS_ENCRYPTION_KEY:-${ENCRYPTION_KEY}}
+
+      # Metrics (optional)
+      - METRICS_ENABLED=${METRICS_ENABLED:-false}
+      - METRICS_PORT=9023
+
     depends_on:
       portal:
         condition: service_healthy
-      bp:
-        condition: service_healthy
+
     healthcheck:
-      test: ["CMD", "wget", "-q", "--spider", "http://localhost:3000/health"]
+      test: ["CMD", "wget", "-q", "-O", "-", "http://localhost:5023/health"]
       interval: 30s
       timeout: 10s
+      start_period: 20s
       retries: 5
-      start_period: 30s
+
     restart: unless-stopped
+
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
     networks:
       - portal-network
 
 networks:
   portal-network:
     external: true
-    name: ${PROJECT_NAME:-ezy-portal}-network

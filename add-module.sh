@@ -39,11 +39,11 @@ API_KEY=""
 VERSION="${VERSION:-latest}"
 RESTART_MODE=false
 
-# Module dependencies
+# Module dependencies (all modules are independent)
 declare -A MODULE_DEPENDENCIES=(
     ["items"]=""
-    ["bp"]="items"
-    ["prospects"]="bp"
+    ["bp"]=""
+    ["prospects"]=""
     ["pricing-tax"]=""
 )
 
@@ -57,6 +57,9 @@ declare -A MODULE_API_KEY_VARS=(
 
 # Modules with separated frontend artifacts (downloaded separately from backend)
 declare -A MODULE_HAS_FRONTEND=(
+    ["items"]="true"
+    ["bp"]="true"
+    ["prospects"]="true"
     ["pricing-tax"]="true"
 )
 
@@ -354,6 +357,8 @@ main() {
             print_error "Failed to install ${MODULE} frontend"
             exit 1
         fi
+        # Reload nginx to pick up new static files
+        reload_nginx || true
     fi
 
     # Start the module

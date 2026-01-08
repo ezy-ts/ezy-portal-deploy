@@ -377,6 +377,16 @@ step_start_services() {
         print_success "Generated deployment secret for API key provisioning"
     fi
 
+    # Generate encryption key if not already set (used by prospects module for sensitive data)
+    local existing_encryption_key
+    existing_encryption_key=$(grep "^ENCRYPTION_KEY=" "$DEPLOY_ROOT/portal.env" 2>/dev/null | cut -d= -f2-)
+    if [[ -z "$existing_encryption_key" ]]; then
+        local encryption_key
+        encryption_key=$(generate_password_alphanum 32)
+        save_config_value "ENCRYPTION_KEY" "$encryption_key" "$DEPLOY_ROOT/portal.env"
+        print_success "Generated encryption key for module data encryption"
+    fi
+
     # Start services
     # Use --pull always for 'latest' to ensure we get the newest images
     local pull_flag=""
