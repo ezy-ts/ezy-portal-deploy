@@ -45,6 +45,14 @@ uploads/**
 # Docker volumes (if local)
 volumes/
 
+# Build artifacts and deployments
+dist/frontend/
+dist/mff/
+
+# Deployment backups (created during updates)
+dist/*.backup.*/
+dist/**/*.backup.*/
+
 # Temporary files
 *.tmp
 *.log

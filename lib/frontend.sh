@@ -223,24 +223,148 @@ download_frontend() {
 download_mff_module() {
     local module_name="$1"
     local version="${2:-latest}"
-    local repo="${3:-ezy-ts/ezy-portal-mff-${module_name}}"
+    local repo="${3:-ezy-ts/ezy-portal-${module_name}}"
+    local deploy_root="${DEPLOY_ROOT:-$(get_deploy_root)}"
 
     if [[ -z "$module_name" ]]; then
         print_error "Module name is required"
         return 1
     fi
 
-    print_info "Downloading MFF module: $module_name (version: $version)"
-
     local module_dir="${MFF_DIST_DIR}/${module_name}"
+    local temp_dir
+    temp_dir=$(mktemp -d)
+    trap "rm -rf $temp_dir" EXIT
+
+    # Resolve 'latest' to actual version
+    if [[ "$version" == "latest" ]]; then
+        print_info "Fetching latest frontend version for ${module_name}..."
+        version=$(get_latest_frontend_version "$repo")
+        if [[ $? -ne 0 ]] || [[ -z "$version" ]]; then
+            return 1
+        fi
+    fi
+    version="${version#v}"
+
+    print_info "Downloading ${module_name} frontend version: $version"
+
+    # Artifact name pattern (matches CI/CD output)
+    local artifact_name="${module_name}-frontend-${version}.zip"
+    local zip_file="${temp_dir}/${artifact_name}"
+
+    # Download using gh CLI or GitHub API (same logic as main frontend)
+    if check_command_exists gh && gh auth status &>/dev/null; then
+        print_info "Downloading release asset using gh CLI..."
+        if ! gh release download "v${version}" --repo "$repo" --pattern "$artifact_name" --dir "$temp_dir" 2>/dev/null; then
+            # Try without 'v' prefix
+            gh release download "${version}" --repo "$repo" --pattern "$artifact_name" --dir "$temp_dir" 2>/dev/null || true
+        fi
+    fi
+
+    # Fallback to GitHub API if gh CLI didn't work
+    if [[ ! -f "$zip_file" ]] || [[ ! -s "$zip_file" ]]; then
+        print_info "Downloading release asset using GitHub API..."
+        local api_url="https://api.github.com/repos/${repo}/releases/tags/v${version}"
+        local auth_header=""
+        if [[ -n "${GITHUB_PAT:-}" ]]; then
+            auth_header="Authorization: token $GITHUB_PAT"
+        fi
+
+        local asset_url
+        if [[ -n "$auth_header" ]]; then
+            asset_url=$(curl -sH "$auth_header" "$api_url" | \
+                grep -oE "\"browser_download_url\": *\"[^\"]*${artifact_name}\"" | \
+                sed 's/"browser_download_url": *"//' | sed 's/"$//')
+        else
+            asset_url=$(curl -s "$api_url" | \
+                grep -oE "\"browser_download_url\": *\"[^\"]*${artifact_name}\"" | \
+                sed 's/"browser_download_url": *"//' | sed 's/"$//')
+        fi
+
+        if [[ -z "$asset_url" ]]; then
+            print_error "Could not find release asset: $artifact_name"
+            print_info "Ensure the release v${version} exists and has the artifact attached"
+            return 1
+        fi
+
+        print_info "Asset URL: $asset_url"
+
+        if [[ -n "$auth_header" ]]; then
+            if ! curl -sL -H "$auth_header" -o "$zip_file" "$asset_url"; then
+                print_error "Failed to download ${module_name} frontend artifact"
+                return 1
+            fi
+        else
+            if ! curl -sL -o "$zip_file" "$asset_url"; then
+                print_error "Failed to download ${module_name} frontend artifact"
+                return 1
+            fi
+        fi
+    fi
+
+    # Verify download
+    if [[ ! -s "$zip_file" ]]; then
+        print_error "Downloaded file is empty or not found"
+        return 1
+    fi
+
+    print_success "Downloaded: $(basename "$zip_file")"
+
+    # Extract to temp location
+    local extract_dir="${temp_dir}/extracted"
+    mkdir -p "$extract_dir"
+
+    print_info "Extracting archive..."
+    if ! unzip -q "$zip_file" -d "$extract_dir"; then
+        print_error "Failed to extract ${module_name} frontend archive"
+        return 1
+    fi
+
+    # Backup existing module if present
+    if [[ -d "$module_dir" ]] && [[ "$(ls -A $module_dir 2>/dev/null)" ]]; then
+        local backup_dir="${MFF_DIST_DIR}/${module_name}.backup.$(date +%Y%m%d_%H%M%S)"
+        print_info "Backing up existing module to: $backup_dir"
+        mv "$module_dir" "$backup_dir"
+    fi
 
     # Ensure MFF directory exists
     mkdir -p "$MFF_DIST_DIR"
 
-    # Placeholder for future implementation
-    print_warning "MFF module download not yet fully implemented"
-    print_info "Module would be installed to: $module_dir"
+    # Create module directory
+    mkdir -p "$module_dir"
 
+    # Find remoteEntry.js to locate the right directory
+    local entry_dir
+    entry_dir=$(find "$extract_dir" -name "remoteEntry.js" -type f -exec dirname {} \; | head -1)
+
+    if [[ -n "$entry_dir" ]]; then
+        mv "${entry_dir}/"* "$module_dir/"
+    elif [[ -d "${extract_dir}/dist" ]]; then
+        mv "${extract_dir}/dist/"* "$module_dir/"
+    elif [[ -f "${extract_dir}/index.html" ]]; then
+        mv "${extract_dir}/"* "$module_dir/"
+    else
+        # Find any directory with content
+        local content_dir
+        content_dir=$(find "$extract_dir" -mindepth 1 -maxdepth 2 -type d | head -1)
+        if [[ -n "$content_dir" ]] && [[ -d "$content_dir" ]]; then
+            mv "${content_dir}/"* "$module_dir/" 2>/dev/null || mv "${extract_dir}/"* "$module_dir/"
+        else
+            mv "${extract_dir}/"* "$module_dir/" 2>/dev/null || true
+        fi
+    fi
+
+    # Verify remoteEntry.js exists (critical for Module Federation)
+    if [[ ! -f "${module_dir}/remoteEntry.js" ]]; then
+        print_error "remoteEntry.js not found in extracted archive"
+        print_info "The frontend artifact may not be a Module Federation bundle"
+        return 1
+    fi
+
+    # Write version file
+    echo "$version" > "${module_dir}/.version"
+
+    print_success "${module_name} frontend version $version installed to $module_dir"
     return 0
 }
 

@@ -44,6 +44,7 @@ declare -A MODULE_DEPENDENCIES=(
     ["items"]=""
     ["bp"]="items"
     ["prospects"]="bp"
+    ["pricing-tax"]=""
 )
 
 # API key variable names
@@ -51,6 +52,12 @@ declare -A MODULE_API_KEY_VARS=(
     ["items"]="ITEMS_API_KEY"
     ["bp"]="BP_API_KEY"
     ["prospects"]="PROSPECTS_API_KEY"
+    ["pricing-tax"]="PRICING_TAX_API_KEY"
+)
+
+# Modules with separated frontend artifacts (downloaded separately from backend)
+declare -A MODULE_HAS_FRONTEND=(
+    ["pricing-tax"]="true"
 )
 
 # -----------------------------------------------------------------------------
@@ -66,9 +73,9 @@ parse_arguments() {
     shift
 
     # Validate module name
-    if [[ ! "$MODULE" =~ ^(items|bp|prospects)$ ]]; then
+    if [[ ! "$MODULE" =~ ^(items|bp|prospects|pricing-tax)$ ]]; then
         print_error "Invalid module: $MODULE"
-        print_info "Available modules: items, bp, prospects"
+        print_info "Available modules: items, bp, prospects, pricing-tax"
         exit 1
     fi
 
@@ -109,9 +116,10 @@ show_help() {
     echo "Usage: ./add-module.sh <module> [OPTIONS]"
     echo ""
     echo "Modules:"
-    echo "  items       Items micro-frontend (base module)"
-    echo "  bp          Business Partners (requires: items)"
-    echo "  prospects   Prospects (requires: bp, items)"
+    echo "  items        Items micro-frontend (base module)"
+    echo "  bp           Business Partners (requires: items)"
+    echo "  prospects    Prospects (requires: bp, items)"
+    echo "  pricing-tax  Pricing & Tax module (separated frontend/backend)"
     echo ""
     echo "Options:"
     echo "  --api-key KEY    API key for the module (optional - auto-provisioned if not provided)"
@@ -130,6 +138,7 @@ show_help() {
     echo "  ./add-module.sh items                      # Auto-provision API key"
     echo "  ./add-module.sh items --api-key abc123     # Use explicit API key"
     echo "  ./add-module.sh bp --version 1.0.2         # Specific version"
+    echo "  ./add-module.sh pricing-tax --version 1.0.0 # Add pricing-tax module"
     echo "  ./add-module.sh items --restart            # Restart to reload config"
 }
 
@@ -220,7 +229,7 @@ start_module() {
 
     # Include dependency compose files in order
     local compose_args="-f $base_compose"
-    local ordered_modules=("items" "bp" "prospects")
+    local ordered_modules=("items" "bp" "prospects" "pricing-tax")
 
     for m in "${ordered_modules[@]}"; do
         local m_compose="$DEPLOY_ROOT/docker/docker-compose.module-${m}.yml"
@@ -245,7 +254,8 @@ start_module() {
     local image
     image=$(get_module_image "$module")
     local var_name
-    var_name="$(echo "${module}_IMAGE" | tr '[:lower:]' '[:upper:]')"
+    # Convert to uppercase and replace hyphens with underscores for valid bash variable names
+    var_name="$(echo "${module}_IMAGE" | tr '[:lower:]-' '[:upper:]_')"
     export "$var_name=$image"
 
     print_info "Starting module: $module"
@@ -328,6 +338,16 @@ main() {
     print_section "Preparing Image"
     if ! docker_pull_image "$VERSION" "$MODULE"; then
         exit 1
+    fi
+
+    # Download frontend artifact for modules with separated frontend
+    if [[ "${MODULE_HAS_FRONTEND[$MODULE]:-false}" == "true" ]]; then
+        print_section "Installing Frontend"
+        source "$SCRIPT_DIR/lib/frontend.sh"
+        if ! download_mff_module "$MODULE" "${FRONTEND_VERSION:-$VERSION}"; then
+            print_error "Failed to install ${MODULE} frontend"
+            exit 1
+        fi
     fi
 
     # Start the module

@@ -21,6 +21,7 @@ declare -A MODULE_IMAGES=(
     ["bp"]="ezy-portal-bp"
     ["items"]="ezy-portal-items"
     ["prospects"]="ezy-portal-prospects"
+    ["pricing-tax"]="ezy-portal-pricing-tax"
 )
 
 # Get image name for a module (always returns full GHCR path)
@@ -182,7 +183,7 @@ get_compose_files_for_modules() {
     compose_args="-f $base_compose"
 
     # Module order (dependencies first)
-    local ordered_modules=("items" "bp" "prospects")
+    local ordered_modules=("items" "bp" "prospects" "pricing-tax")
 
     # Add module-specific compose files in dependency order
     for module in "${ordered_modules[@]}"; do

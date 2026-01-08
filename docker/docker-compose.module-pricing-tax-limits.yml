@@ -1,0 +1,17 @@
+# =============================================================================
+# EZY Portal - Pricing-Tax Module Resource Limits
+# =============================================================================
+# High-performance overlay for the Pricing-Tax module.
+# Applied when PERF_MODE=high is set.
+# =============================================================================
+
+services:
+  pricing-tax:
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+          cpus: '1'
+        reservations:
+          memory: 512M
+          cpus: '0.5'
