@@ -184,6 +184,9 @@ run_config_wizard() {
     # Admin user
     prompt_admin_config "$config_file"
 
+    # Feature flags
+    prompt_features_config "$config_file"
+
     echo ""
     print_success "Configuration saved to: $config_file"
 
@@ -522,6 +525,35 @@ prompt_admin_config() {
     print_success "Admin configured: $admin_email"
 }
 
+prompt_features_config() {
+    local config_file="$1"
+
+    print_subsection "Feature Configuration"
+
+    # Universal Search - enabled by default
+    echo ""
+    print_info "Universal Search provides a global search bar in the top navigation"
+    print_info "that allows users to search across all entities (accounts, users, etc.)"
+    echo ""
+
+    if confirm "Enable Universal Search? (Recommended)" "y"; then
+        save_config_value "ADVANCED_SEARCH_ENABLED" "true" "$config_file"
+        print_success "Universal Search enabled"
+    else
+        save_config_value "ADVANCED_SEARCH_ENABLED" "false" "$config_file"
+        print_info "Universal Search disabled"
+    fi
+
+    # Dark Mode - already in template, just confirm
+    if confirm "Enable Dark Mode theme option?" "y"; then
+        save_config_value "Frontend__Features__DarkModeEnabled" "true" "$config_file"
+    else
+        save_config_value "Frontend__Features__DarkModeEnabled" "false" "$config_file"
+    fi
+
+    print_success "Features configured"
+}
+
 # -----------------------------------------------------------------------------
 # Quick Setup (Non-Interactive)
 # -----------------------------------------------------------------------------
@@ -556,6 +588,10 @@ create_default_config() {
     # Update connection string
     local conn_string="Host=postgres;Port=5432;Database=portal;Username=postgres;Password=${db_password}"
     save_config_value "ConnectionStrings__DefaultConnection" "$conn_string" "$config_file"
+
+    # Feature flags - enable by default
+    save_config_value "ADVANCED_SEARCH_ENABLED" "true" "$config_file"
+    save_config_value "Frontend__Features__DarkModeEnabled" "true" "$config_file"
 
     print_success "Default configuration created: $config_file"
     print_warning "Please edit the configuration file to set:"
