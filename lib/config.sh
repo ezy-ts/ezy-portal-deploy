@@ -114,8 +114,12 @@ validate_config() {
         print_success "Google authentication configured"
         has_auth=true
     fi
+    if [[ "${ALLOW_LOCAL_LOGIN:-}" == "true" ]]; then
+        print_success "Local login (email/password) enabled"
+        has_auth=true
+    fi
     if [[ "$has_auth" == "false" ]]; then
-        print_warning "No OAuth provider configured (Azure AD or Google required for login)"
+        print_warning "No authentication method configured (Azure AD, Google, or local login required)"
     fi
 
     if [[ $errors -gt 0 ]]; then
@@ -438,8 +442,10 @@ prompt_auth_config() {
     print_subsection "Authentication Configuration"
 
     echo ""
-    print_info "Configure at least one OAuth provider for user login"
+    print_info "Configure at least one authentication method for user login"
     echo ""
+
+    local has_oauth=false
 
     if confirm "Configure Azure AD authentication?" "y"; then
         local tenant_id client_id client_secret
@@ -453,6 +459,7 @@ prompt_auth_config() {
         save_config_value "AZURE_AD_CLIENT_SECRET" "$client_secret" "$config_file"
 
         print_success "Azure AD configured"
+        has_oauth=true
     fi
 
     if confirm "Configure Google OAuth?" "n"; then
@@ -465,6 +472,30 @@ prompt_auth_config() {
         save_config_value "GOOGLE_CLIENT_SECRET" "$client_secret" "$config_file"
 
         print_success "Google OAuth configured"
+        has_oauth=true
+    fi
+
+    # If no OAuth configured, prompt for local login (otherwise ask as optional)
+    echo ""
+    if [[ "$has_oauth" == "false" ]]; then
+        print_warning "No OAuth provider configured"
+        print_info "Local login allows users to authenticate with email and password"
+        if confirm "Enable local login (email/password)?" "y"; then
+            save_config_value "ALLOW_LOCAL_LOGIN" "true" "$config_file"
+            print_success "Local login enabled"
+        else
+            save_config_value "ALLOW_LOCAL_LOGIN" "false" "$config_file"
+            print_warning "No authentication method configured - users will not be able to log in!"
+        fi
+    else
+        print_info "Local login allows users to authenticate with email and password"
+        print_info "(in addition to OAuth providers)"
+        if confirm "Enable local login?" "n"; then
+            save_config_value "ALLOW_LOCAL_LOGIN" "true" "$config_file"
+            print_success "Local login enabled"
+        else
+            save_config_value "ALLOW_LOCAL_LOGIN" "false" "$config_file"
+        fi
     fi
 }
 
@@ -597,7 +628,7 @@ create_default_config() {
     print_warning "Please edit the configuration file to set:"
     print_info "  - ADMIN_EMAIL"
     print_info "  - APPLICATION_URL"
-    print_info "  - OAuth credentials (Azure AD or Google)"
+    print_info "  - Authentication: OAuth credentials (Azure AD or Google) and/or ALLOW_LOCAL_LOGIN=true"
 
     return 0
 }
