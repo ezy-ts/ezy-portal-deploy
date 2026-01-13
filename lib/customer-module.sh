@@ -157,12 +157,16 @@ parse_manifest() {
         return 1
     fi
 
+    # Check for required environment variables in manifest
+    MODULE_HAS_REQUIRED_ENV=$(yq '.module.environment.required | length > 0' "$manifest_file")
+
     # Export for use by calling script
     export MODULE_NAME MODULE_DISPLAY_NAME MODULE_VENDOR MODULE_VERSION MODULE_ARCHITECTURE
     export MODULE_IMAGE_REPO MODULE_IMAGE_TAG MODULE_PORT MODULE_HEALTH_ENDPOINT
     export MODULE_DB_SCHEMA MODULE_DEPENDENCIES MODULE_SERVICE_DEPENDENCIES MODULE_API_KEY_ENV_VAR
     export MODULE_API_PREFIX MODULE_MFE_PREFIX MODULE_HAS_CUSTOM_NGINX
     export MODULE_HAS_FRONTEND MODULE_FRONTEND_ARTIFACT MODULE_FRONTEND_REPO MODULE_FRONTEND_MFF_DIR
+    export MODULE_HAS_REQUIRED_ENV
 
     return 0
 }
@@ -900,6 +904,134 @@ save_customer_module_api_key() {
 
     # Use the consolidated function from lib/api-keys.sh
     get_or_provision_api_key "$module_name" "$env_var_name" "$api_key"
+}
+
+# -----------------------------------------------------------------------------
+# Required Environment Variables Management
+# -----------------------------------------------------------------------------
+
+# Process required environment variables from manifest
+# Adds placeholders to portal.env for any missing variables
+# Usage: process_required_env_vars <manifest_file> [config_file]
+# Returns: Number of variables that need to be configured (have CHANGE_ME placeholders)
+process_required_env_vars() {
+    local manifest_file="$1"
+    local config_file="${2:-${DEPLOY_ROOT}/portal.env}"
+    local needs_config=0
+    local added_vars=()
+
+    # Check if manifest has required env vars
+    local has_required
+    has_required=$(yq '.module.environment.required | length > 0' "$manifest_file")
+
+    if [[ "$has_required" != "true" ]]; then
+        return 0
+    fi
+
+    local module_name
+    module_name=$(yq '.module.name' "$manifest_file" | tr -d '"')
+
+    print_info "Processing required environment variables..."
+
+    # Get the count of required variables
+    local var_count
+    var_count=$(yq '.module.environment.required | length' "$manifest_file")
+
+    for ((i=0; i<var_count; i++)); do
+        local var_name
+        local var_desc
+        local var_placeholder
+        local var_sensitive
+
+        var_name=$(yq ".module.environment.required[$i].name" "$manifest_file" | tr -d '"')
+        var_desc=$(yq ".module.environment.required[$i].description // \"\"" "$manifest_file" | tr -d '"')
+        var_placeholder=$(yq ".module.environment.required[$i].placeholder // \"CHANGE_ME\"" "$manifest_file" | tr -d '"')
+        var_sensitive=$(yq ".module.environment.required[$i].sensitive // false" "$manifest_file")
+
+        # Check if variable already exists in config
+        if grep -q "^${var_name}=" "$config_file" 2>/dev/null; then
+            local existing_value
+            existing_value=$(grep "^${var_name}=" "$config_file" | cut -d= -f2-)
+
+            # Check if it still has a placeholder value
+            if [[ "$existing_value" == "CHANGE_ME" ]] || [[ "$existing_value" == *"CHANGE_ME"* ]]; then
+                ((needs_config++))
+                debug "Variable $var_name exists but needs configuration"
+            else
+                debug "Variable $var_name already configured"
+            fi
+        else
+            # Add variable with placeholder
+            echo "" >> "$config_file"
+            echo "# $var_desc" >> "$config_file"
+            echo "${var_name}=${var_placeholder}" >> "$config_file"
+            added_vars+=("$var_name")
+
+            if [[ "$var_placeholder" == "CHANGE_ME" ]] || [[ "$var_placeholder" == *"CHANGE_ME"* ]]; then
+                ((needs_config++))
+            fi
+        fi
+    done
+
+    if [[ ${#added_vars[@]} -gt 0 ]]; then
+        print_success "Added ${#added_vars[@]} environment variables to $(basename "$config_file")"
+    fi
+
+    return $needs_config
+}
+
+# Display required environment variables that need configuration
+# Usage: show_required_env_vars <manifest_file> [config_file]
+show_required_env_vars() {
+    local manifest_file="$1"
+    local config_file="${2:-${DEPLOY_ROOT}/portal.env}"
+
+    # Check if manifest has required env vars
+    local has_required
+    has_required=$(yq '.module.environment.required | length > 0' "$manifest_file")
+
+    if [[ "$has_required" != "true" ]]; then
+        return 0
+    fi
+
+    local var_count
+    var_count=$(yq '.module.environment.required | length' "$manifest_file")
+    local unconfigured=()
+
+    for ((i=0; i<var_count; i++)); do
+        local var_name
+        local var_desc
+        local var_sensitive
+
+        var_name=$(yq ".module.environment.required[$i].name" "$manifest_file" | tr -d '"')
+        var_desc=$(yq ".module.environment.required[$i].description // \"\"" "$manifest_file" | tr -d '"')
+        var_sensitive=$(yq ".module.environment.required[$i].sensitive // false" "$manifest_file")
+
+        # Check if variable needs configuration
+        if grep -q "^${var_name}=" "$config_file" 2>/dev/null; then
+            local existing_value
+            existing_value=$(grep "^${var_name}=" "$config_file" | cut -d= -f2-)
+
+            if [[ "$existing_value" == "CHANGE_ME" ]] || [[ "$existing_value" == *"CHANGE_ME"* ]]; then
+                if [[ "$var_sensitive" == "true" ]]; then
+                    unconfigured+=("  - ${var_name} (sensitive): $var_desc")
+                else
+                    unconfigured+=("  - ${var_name}: $var_desc")
+                fi
+            fi
+        fi
+    done
+
+    if [[ ${#unconfigured[@]} -gt 0 ]]; then
+        echo ""
+        print_warning "The following environment variables need to be configured in portal.env:"
+        for var in "${unconfigured[@]}"; do
+            echo "$var"
+        done
+        echo ""
+        print_info "After configuring, restart the module with:"
+        echo "  docker restart \$(docker ps -q -f name=<module-name>)"
+    fi
 }
 
 # -----------------------------------------------------------------------------

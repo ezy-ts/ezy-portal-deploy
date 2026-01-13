@@ -495,18 +495,27 @@ main() {
         fi
     fi
 
+    # Handle required environment variables
+    if [[ "$MODULE_HAS_REQUIRED_ENV" == "true" ]]; then
+        print_section "Step 10: Environment Variables"
+        process_required_env_vars "${temp_dir}/module-manifest.yaml"
+        ENV_NEEDS_CONFIG=$?
+    else
+        ENV_NEEDS_CONFIG=0
+    fi
+
     # Start the module
-    print_section "Step 10: Start Module"
+    print_section "Step 11: Start Module"
     if ! start_customer_module "$MODULE_NAME"; then
         exit 1
     fi
 
     # Reload nginx
-    print_section "Step 11: Reload Nginx"
+    print_section "Step 12: Reload Nginx"
     reload_nginx || true
 
     # Wait for healthy
-    print_section "Step 12: Health Check"
+    print_section "Step 13: Health Check"
     wait_for_customer_module_healthy "$MODULE_NAME" 120 || true
 
     # Register module
@@ -529,6 +538,15 @@ main() {
     fi
     echo "  Logs:         docker logs $MODULE_NAME"
     echo ""
+
+    # Show warning about environment variables that need configuration
+    if [[ "$MODULE_HAS_REQUIRED_ENV" == "true" ]] && [[ $ENV_NEEDS_CONFIG -gt 0 ]]; then
+        show_required_env_vars "${temp_dir}/module-manifest.yaml"
+        echo ""
+        print_warning "Module installed but may not work correctly until environment variables are configured!"
+        print_info "After updating portal.env, restart the module:"
+        echo "  docker restart $MODULE_NAME"
+    fi
 
     log_info "Customer module added: $MODULE_NAME v$MODULE_VERSION (architecture: $MODULE_ARCHITECTURE)"
 }
