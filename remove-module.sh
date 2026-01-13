@@ -42,6 +42,7 @@ declare -A MODULE_API_KEY_VARS=(
     ["items"]="ITEMS_API_KEY"
     ["bp"]="BP_API_KEY"
     ["prospects"]="PROSPECTS_API_KEY"
+    ["pricing-tax"]="PRICING_TAX_API_KEY"
 )
 
 # -----------------------------------------------------------------------------
@@ -57,9 +58,9 @@ parse_arguments() {
     shift
 
     # Validate module name
-    if [[ ! "$MODULE" =~ ^(items|bp|prospects)$ ]]; then
+    if [[ ! "$MODULE" =~ ^(items|bp|prospects|pricing-tax)$ ]]; then
         print_error "Invalid module: $MODULE"
-        print_info "Available modules: items, bp, prospects"
+        print_info "Available modules: items, bp, prospects, pricing-tax"
         exit 1
     fi
 
@@ -154,6 +155,35 @@ check_module_running() {
 }
 
 # -----------------------------------------------------------------------------
+# Configuration Operations
+# -----------------------------------------------------------------------------
+
+# Remove module from MODULES list in portal.env
+remove_module_from_config() {
+    local module="$1"
+    local config_file="${DEPLOY_ROOT}/portal.env"
+
+    # Get current MODULES value
+    local current_modules
+    current_modules=$(grep "^MODULES=" "$config_file" 2>/dev/null | cut -d'=' -f2)
+
+    if [[ -z "$current_modules" ]]; then
+        return 0
+    fi
+
+    # Check if module is in the list
+    if [[ ",$current_modules," =~ ",$module," ]]; then
+        # Remove the module from the list
+        local new_modules
+        new_modules=$(echo "$current_modules" | sed -e "s/,$module,/,/g" -e "s/^$module,//" -e "s/,$module$//" -e "s/^$module$//")
+        save_config_value "MODULES" "$new_modules" "$config_file"
+        print_info "Removed '$module' from MODULES list"
+    else
+        debug "Module '$module' not in MODULES list"
+    fi
+}
+
+# -----------------------------------------------------------------------------
 # Removal Operations
 # -----------------------------------------------------------------------------
 stop_module() {
@@ -234,6 +264,10 @@ main() {
     # Stop the container
     print_subsection "Stopping Container"
     stop_module "$MODULE"
+
+    # Remove from MODULES list
+    print_subsection "Updating Configuration"
+    remove_module_from_config "$MODULE"
 
     # Remove API key if requested
     if [[ "$REMOVE_KEY" == "true" ]]; then

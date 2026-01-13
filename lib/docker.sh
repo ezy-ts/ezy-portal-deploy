@@ -213,7 +213,7 @@ generate_module_image_vars() {
         module=$(echo "$module" | xargs)  # trim whitespace
         if [[ -n "$module" ]]; then
             local var_name
-            var_name="$(echo "${module}_IMAGE" | tr '[:lower:]' '[:upper:]')"
+            var_name="$(echo "${module}_IMAGE" | tr '[:lower:]-' '[:upper:]_')"
             local image
             image="$(get_module_image "$module")"
             export "$var_name=$image"

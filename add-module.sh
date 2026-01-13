@@ -146,6 +146,33 @@ show_help() {
 }
 
 # -----------------------------------------------------------------------------
+# Module Configuration
+# -----------------------------------------------------------------------------
+
+# Add module to MODULES list in portal.env if not already present
+add_module_to_config() {
+    local module="$1"
+    local config_file="${DEPLOY_ROOT}/portal.env"
+
+    # Get current MODULES value
+    local current_modules
+    current_modules=$(grep "^MODULES=" "$config_file" 2>/dev/null | cut -d'=' -f2)
+
+    if [[ -z "$current_modules" ]]; then
+        # MODULES not set, create it
+        save_config_value "MODULES" "portal,$module" "$config_file"
+        print_info "Added MODULES=portal,$module to config"
+    elif [[ ! ",$current_modules," =~ ",$module," ]]; then
+        # Module not in list, add it
+        local new_modules="${current_modules},$module"
+        save_config_value "MODULES" "$new_modules" "$config_file"
+        print_info "Added '$module' to MODULES list"
+    else
+        debug "Module '$module' already in MODULES list"
+    fi
+}
+
+# -----------------------------------------------------------------------------
 # Module-specific Checks
 # -----------------------------------------------------------------------------
 check_module_dependencies_for() {
@@ -369,6 +396,9 @@ main() {
 
     # Wait for healthy
     wait_for_module_healthy "$MODULE" || true
+
+    # Add module to MODULES list in portal.env
+    add_module_to_config "$MODULE"
 
     # Success
     local app_url="${APPLICATION_URL:-https://localhost}"
