@@ -121,43 +121,40 @@ download_frontend() {
 
         # Get release info from API
         local api_url="https://api.github.com/repos/${repo}/releases/tags/v${version}"
-        local auth_header=""
-        if [[ -n "${GITHUB_PAT:-}" ]]; then
-            auth_header="Authorization: token $GITHUB_PAT"
+
+        if [[ -z "${GITHUB_PAT:-}" ]]; then
+            print_error "GITHUB_PAT is required to download from private repositories"
+            return 1
         fi
 
-        # Find the asset URL for our artifact
-        local asset_url
-        if [[ -n "$auth_header" ]]; then
-            asset_url=$(curl -sH "$auth_header" "$api_url" | \
-                grep -oE "\"browser_download_url\": *\"[^\"]*${artifact_name}\"" | \
-                sed 's/"browser_download_url": *"//' | sed 's/"$//')
-        else
-            asset_url=$(curl -s "$api_url" | \
-                grep -oE "\"browser_download_url\": *\"[^\"]*${artifact_name}\"" | \
-                sed 's/"browser_download_url": *"//' | sed 's/"$//')
-        fi
+        # Get release info including assets
+        local release_info
+        release_info=$(curl -sH "Authorization: token $GITHUB_PAT" "$api_url")
 
-        if [[ -z "$asset_url" ]]; then
+        # Find the asset ID for our artifact (needed for private repo downloads)
+        local asset_id
+        asset_id=$(echo "$release_info" | grep -B5 "\"name\": *\"${artifact_name}\"" | \
+            grep '"id":' | head -1 | sed -E 's/.*"id": *([0-9]+).*/\1/')
+
+        if [[ -z "$asset_id" ]]; then
             print_error "Could not find release asset: $artifact_name"
             print_info "Ensure the release v${version} exists and has the artifact attached"
             return 1
         fi
 
-        print_info "Asset URL: $asset_url"
+        # For private repos, use the asset API endpoint with Accept header
+        local asset_api_url="https://api.github.com/repos/${repo}/releases/assets/${asset_id}"
+        print_info "Asset API URL: $asset_api_url"
         zip_file="${temp_dir}/${artifact_name}"
 
-        # Download the asset
-        if [[ -n "$auth_header" ]]; then
-            if ! curl -sL -H "$auth_header" -o "$zip_file" "$asset_url"; then
-                print_error "Failed to download frontend artifact"
-                return 1
-            fi
-        else
-            if ! curl -sL -o "$zip_file" "$asset_url"; then
-                print_error "Failed to download frontend artifact"
-                return 1
-            fi
+        # Download using the asset API with octet-stream Accept header
+        if ! curl -sL \
+            -H "Authorization: token $GITHUB_PAT" \
+            -H "Accept: application/octet-stream" \
+            -o "$zip_file" \
+            "$asset_api_url"; then
+            print_error "Failed to download frontend artifact"
+            return 1
         fi
     fi
 
@@ -265,40 +262,39 @@ download_mff_module() {
     if [[ ! -f "$zip_file" ]] || [[ ! -s "$zip_file" ]]; then
         print_info "Downloading release asset using GitHub API..."
         local api_url="https://api.github.com/repos/${repo}/releases/tags/v${version}"
-        local auth_header=""
-        if [[ -n "${GITHUB_PAT:-}" ]]; then
-            auth_header="Authorization: token $GITHUB_PAT"
+
+        if [[ -z "${GITHUB_PAT:-}" ]]; then
+            print_error "GITHUB_PAT is required to download from private repositories"
+            return 1
         fi
 
-        local asset_url
-        if [[ -n "$auth_header" ]]; then
-            asset_url=$(curl -sH "$auth_header" "$api_url" | \
-                grep -oE "\"browser_download_url\": *\"[^\"]*${artifact_name}\"" | \
-                sed 's/"browser_download_url": *"//' | sed 's/"$//')
-        else
-            asset_url=$(curl -s "$api_url" | \
-                grep -oE "\"browser_download_url\": *\"[^\"]*${artifact_name}\"" | \
-                sed 's/"browser_download_url": *"//' | sed 's/"$//')
-        fi
+        # Get release info including assets
+        local release_info
+        release_info=$(curl -sH "Authorization: token $GITHUB_PAT" "$api_url")
 
-        if [[ -z "$asset_url" ]]; then
+        # Find the asset ID for our artifact (needed for private repo downloads)
+        local asset_id
+        asset_id=$(echo "$release_info" | grep -B5 "\"name\": *\"${artifact_name}\"" | \
+            grep '"id":' | head -1 | sed -E 's/.*"id": *([0-9]+).*/\1/')
+
+        if [[ -z "$asset_id" ]]; then
             print_error "Could not find release asset: $artifact_name"
             print_info "Ensure the release v${version} exists and has the artifact attached"
             return 1
         fi
 
-        print_info "Asset URL: $asset_url"
+        # For private repos, use the asset API endpoint with Accept header
+        local asset_api_url="https://api.github.com/repos/${repo}/releases/assets/${asset_id}"
+        print_info "Asset API URL: $asset_api_url"
 
-        if [[ -n "$auth_header" ]]; then
-            if ! curl -sL -H "$auth_header" -o "$zip_file" "$asset_url"; then
-                print_error "Failed to download ${module_name} frontend artifact"
-                return 1
-            fi
-        else
-            if ! curl -sL -o "$zip_file" "$asset_url"; then
-                print_error "Failed to download ${module_name} frontend artifact"
-                return 1
-            fi
+        # Download using the asset API with octet-stream Accept header
+        if ! curl -sL \
+            -H "Authorization: token $GITHUB_PAT" \
+            -H "Accept: application/octet-stream" \
+            -o "$zip_file" \
+            "$asset_api_url"; then
+            print_error "Failed to download ${module_name} frontend artifact"
+            return 1
         fi
     fi
 
