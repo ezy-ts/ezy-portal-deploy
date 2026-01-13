@@ -498,8 +498,10 @@ main() {
     # Handle required environment variables
     if [[ "$MODULE_HAS_REQUIRED_ENV" == "true" ]]; then
         print_section "Step 10: Environment Variables"
-        process_required_env_vars "${temp_dir}/module-manifest.yaml"
-        ENV_NEEDS_CONFIG=$?
+        # Note: process_required_env_vars returns count of vars needing config (not an error)
+        # Use subshell to capture return value without triggering set -e
+        ENV_NEEDS_CONFIG=0
+        process_required_env_vars "${temp_dir}/module-manifest.yaml" && true || ENV_NEEDS_CONFIG=$?
     else
         ENV_NEEDS_CONFIG=0
     fi
