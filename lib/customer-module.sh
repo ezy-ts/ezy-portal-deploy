@@ -59,6 +59,7 @@ check_gh_installed() {
 # -----------------------------------------------------------------------------
 
 # Parse a module manifest file and export values as variables
+# Supports both unified (v1.0) and separated (v1.1) architecture manifests
 # Usage: parse_manifest /path/to/module-manifest.yaml
 parse_manifest() {
     local manifest_file="$1"
@@ -68,27 +69,55 @@ parse_manifest() {
         return 1
     fi
 
-    # Validate manifest version
+    # Check manifest version
     local manifest_version
-    manifest_version=$(yq '.version' "$manifest_file" 2>/dev/null)
-    if [[ "$manifest_version" != "1.0" && "$manifest_version" != '"1.0"' ]]; then
-        print_error "Unsupported manifest version: $manifest_version (expected 1.0)"
+    manifest_version=$(yq '.version' "$manifest_file" 2>/dev/null | tr -d '"')
+
+    # Validate manifest version
+    if [[ "$manifest_version" != "1.0" && "$manifest_version" != "1.1" ]]; then
+        print_error "Unsupported manifest version: $manifest_version (expected 1.0 or 1.1)"
         return 1
     fi
 
-    # Extract module info
+    # Extract module info (common to both versions)
     MODULE_NAME=$(yq '.module.name' "$manifest_file" | tr -d '"')
     MODULE_DISPLAY_NAME=$(yq '.module.displayName' "$manifest_file" | tr -d '"')
     MODULE_VENDOR=$(yq '.module.vendor // ""' "$manifest_file" | tr -d '"')
     MODULE_VERSION=$(yq '.module.moduleVersion' "$manifest_file" | tr -d '"')
 
-    # Image info
-    MODULE_IMAGE_REPO=$(yq '.module.image.repository' "$manifest_file" | tr -d '"')
-    MODULE_IMAGE_TAG=$(yq '.module.image.tag' "$manifest_file" | tr -d '"')
+    # Check architecture type (separated or unified)
+    MODULE_ARCHITECTURE=$(yq '.module.architecture // "unified"' "$manifest_file" | tr -d '"')
 
-    # Network info
-    MODULE_PORT=$(yq '.module.port' "$manifest_file")
-    MODULE_HEALTH_ENDPOINT=$(yq '.module.healthEndpoint // "/health"' "$manifest_file" | tr -d '"')
+    if [[ "$MODULE_ARCHITECTURE" == "separated" ]]; then
+        # Separated architecture (v1.1): backend in container, frontend as static files
+        MODULE_IMAGE_REPO=$(yq '.module.backend.image.repository' "$manifest_file" | tr -d '"')
+        MODULE_IMAGE_TAG=$(yq '.module.backend.image.tag' "$manifest_file" | tr -d '"')
+        MODULE_PORT=$(yq '.module.backend.port' "$manifest_file")
+        MODULE_HEALTH_ENDPOINT=$(yq '.module.backend.healthEndpoint // "/health"' "$manifest_file" | tr -d '"')
+
+        # Frontend info
+        MODULE_HAS_FRONTEND="true"
+        MODULE_FRONTEND_ARTIFACT=$(yq '.module.frontend.artifactPattern // ""' "$manifest_file" | tr -d '"')
+        MODULE_FRONTEND_REPO=$(yq '.module.frontend.repository // ""' "$manifest_file" | tr -d '"')
+        MODULE_FRONTEND_MFF_DIR=$(yq '.module.frontend.mffDir // ""' "$manifest_file" | tr -d '"')
+
+        # Default frontend values if not specified
+        if [[ -z "$MODULE_FRONTEND_MFF_DIR" || "$MODULE_FRONTEND_MFF_DIR" == "null" ]]; then
+            MODULE_FRONTEND_MFF_DIR="$MODULE_NAME"
+        fi
+    else
+        # Unified architecture (v1.0): single container serves both API and MFE
+        MODULE_IMAGE_REPO=$(yq '.module.image.repository' "$manifest_file" | tr -d '"')
+        MODULE_IMAGE_TAG=$(yq '.module.image.tag' "$manifest_file" | tr -d '"')
+        MODULE_PORT=$(yq '.module.port' "$manifest_file")
+        MODULE_HEALTH_ENDPOINT=$(yq '.module.healthEndpoint // "/health"' "$manifest_file" | tr -d '"')
+
+        # No separate frontend for unified
+        MODULE_HAS_FRONTEND="false"
+        MODULE_FRONTEND_ARTIFACT=""
+        MODULE_FRONTEND_REPO=""
+        MODULE_FRONTEND_MFF_DIR=""
+    fi
 
     # Database info
     MODULE_DB_SCHEMA=$(yq '.module.database.schema // ""' "$manifest_file" | tr -d '"')
@@ -104,7 +133,7 @@ parse_manifest() {
     MODULE_API_PREFIX=$(yq '.module.routing.apiPrefix' "$manifest_file" | tr -d '"')
     MODULE_MFE_PREFIX=$(yq '.module.routing.mfePrefix' "$manifest_file" | tr -d '"')
 
-    # Custom nginx configs
+    # Custom nginx configs (only for unified architecture or explicit overrides)
     MODULE_HAS_CUSTOM_NGINX=$(yq '.nginx.customConfigs | length > 0' "$manifest_file")
 
     # Validate required fields
@@ -114,12 +143,12 @@ parse_manifest() {
     fi
 
     if [[ -z "$MODULE_IMAGE_REPO" || "$MODULE_IMAGE_REPO" == "null" ]]; then
-        print_error "Manifest missing required field: module.image.repository"
+        print_error "Manifest missing required field: module.backend.image.repository (or module.image.repository for v1.0)"
         return 1
     fi
 
     if [[ -z "$MODULE_PORT" || "$MODULE_PORT" == "null" ]]; then
-        print_error "Manifest missing required field: module.port"
+        print_error "Manifest missing required field: module.backend.port (or module.port for v1.0)"
         return 1
     fi
 
@@ -129,10 +158,11 @@ parse_manifest() {
     fi
 
     # Export for use by calling script
-    export MODULE_NAME MODULE_DISPLAY_NAME MODULE_VENDOR MODULE_VERSION
+    export MODULE_NAME MODULE_DISPLAY_NAME MODULE_VENDOR MODULE_VERSION MODULE_ARCHITECTURE
     export MODULE_IMAGE_REPO MODULE_IMAGE_TAG MODULE_PORT MODULE_HEALTH_ENDPOINT
     export MODULE_DB_SCHEMA MODULE_DEPENDENCIES MODULE_SERVICE_DEPENDENCIES MODULE_API_KEY_ENV_VAR
     export MODULE_API_PREFIX MODULE_MFE_PREFIX MODULE_HAS_CUSTOM_NGINX
+    export MODULE_HAS_FRONTEND MODULE_FRONTEND_ARTIFACT MODULE_FRONTEND_REPO MODULE_FRONTEND_MFF_DIR
 
     return 0
 }
@@ -221,22 +251,97 @@ check_service_dependencies() {
 # -----------------------------------------------------------------------------
 
 # Generate nginx configuration for a customer module
+# Supports both unified (proxy MFE to container) and separated (static files) architectures
+# Usage: generate_customer_nginx_config <module_name> <port> <api_prefix> <mfe_prefix> <output_file> [architecture] [mff_dir]
 generate_customer_nginx_config() {
     local module_name="$1"
     local port="$2"
     local api_prefix="$3"
     local mfe_prefix="$4"
     local output_file="$5"
+    local architecture="${6:-unified}"
+    local mff_dir="${7:-$module_name}"
 
     # Convert module name to valid nginx variable name (replace - with _)
     local var_name="${module_name//-/_}_backend"
 
-    cat > "$output_file" << EOF
+    if [[ "$architecture" == "separated" ]]; then
+        # Separated architecture: API proxied, MFE served from static files
+        cat > "$output_file" << EOF
 # =============================================================================
-# Customer Module: ${module_name}
+# Customer Module: ${module_name} (Separated Architecture)
 # =============================================================================
 # Auto-generated by add-customer-module.sh
 # Do not edit manually - changes will be overwritten on module upgrade
+#
+# Architecture: separated
+# - Backend API: Proxied to container http://${module_name}:${port}
+# - Frontend MFE: Served from static files /usr/share/nginx/html/mff/${mff_dir}/
+# =============================================================================
+
+# Health endpoint
+location = ${api_prefix}/health {
+    set \$${var_name} "http://${module_name}:${port}";
+    rewrite ^${api_prefix}/health\$ /health break;
+    proxy_pass \$${var_name};
+    include snippets/proxy-headers-common.conf;
+}
+
+# Swagger documentation
+location ${api_prefix}/swagger {
+    set \$${var_name} "http://${module_name}:${port}";
+    rewrite ^${api_prefix}/swagger(.*)\$ /swagger\$1 break;
+    proxy_pass \$${var_name};
+    include snippets/proxy-headers-common.conf;
+}
+
+# API routes
+location ${api_prefix}/ {
+    set \$${var_name} "http://${module_name}:${port}";
+    rewrite ^${api_prefix}/(.*)\$ /api/\$1 break;
+    proxy_pass \$${var_name};
+    include snippets/proxy-headers-common.conf;
+
+    # CORS headers
+    add_header Access-Control-Allow-Origin "*" always;
+    add_header Access-Control-Allow-Methods "GET, POST, PUT, PATCH, DELETE, OPTIONS" always;
+    add_header Access-Control-Allow-Headers "Origin, Content-Type, Accept, Authorization" always;
+
+    # Timeouts
+    proxy_connect_timeout 60s;
+    proxy_send_timeout 60s;
+    proxy_read_timeout 60s;
+}
+
+# MFE remoteEntry.js (no cache for Module Federation - served from static files)
+location = ${mfe_prefix}/remoteEntry.js {
+    alias /usr/share/nginx/html/mff/${mff_dir}/remoteEntry.js;
+    expires -1;
+    add_header Cache-Control "no-store, no-cache, must-revalidate" always;
+    add_header Access-Control-Allow-Origin "*" always;
+    add_header Access-Control-Allow-Methods "GET, OPTIONS" always;
+}
+
+# MFE static assets (served from static files)
+location ~ ^${mfe_prefix}/(.*)\$ {
+    alias /usr/share/nginx/html/mff/${mff_dir}/\$1;
+    expires 1y;
+    add_header Cache-Control "public, immutable" always;
+    add_header Access-Control-Allow-Origin "*" always;
+    add_header Access-Control-Allow-Methods "GET, OPTIONS" always;
+}
+EOF
+    else
+        # Unified architecture: both API and MFE proxied to container
+        cat > "$output_file" << EOF
+# =============================================================================
+# Customer Module: ${module_name} (Unified Architecture)
+# =============================================================================
+# Auto-generated by add-customer-module.sh
+# Do not edit manually - changes will be overwritten on module upgrade
+#
+# Architecture: unified
+# - Both API and MFE proxied to container http://${module_name}:${port}
 # =============================================================================
 
 # Health endpoint
@@ -297,6 +402,7 @@ location ${mfe_prefix}/ {
     add_header Access-Control-Allow-Origin "*" always;
 }
 EOF
+    fi
 
     return 0
 }
@@ -772,4 +878,199 @@ save_customer_module_api_key() {
 
     # Use the consolidated function from lib/api-keys.sh
     get_or_provision_api_key "$module_name" "$env_var_name" "$api_key"
+}
+
+# -----------------------------------------------------------------------------
+# Customer Module Frontend Management (Separated Architecture)
+# -----------------------------------------------------------------------------
+
+CUSTOMER_MFF_DIR="${DEPLOY_ROOT}/dist/mff"
+
+# Download and install frontend artifact for a customer module with separated architecture
+# Usage: download_customer_frontend <module_name> <version> <artifact_pattern> <repo> <mff_dir>
+download_customer_frontend() {
+    local module_name="$1"
+    local version="$2"
+    local artifact_pattern="$3"
+    local repo="$4"
+    local mff_dir="${5:-$module_name}"
+
+    local deploy_root="${DEPLOY_ROOT:-$(get_deploy_root)}"
+    local module_dir="${CUSTOMER_MFF_DIR}/${mff_dir}"
+    local temp_dir
+
+    temp_dir=$(mktemp -d)
+    trap "rm -rf $temp_dir" RETURN
+
+    # Remove 'v' prefix from version if present
+    version="${version#v}"
+
+    # Build artifact name from pattern (replace {version} placeholder)
+    local artifact_name="${artifact_pattern//\{version\}/$version}"
+
+    print_info "Downloading ${module_name} frontend version: $version"
+    print_info "Artifact: $artifact_name"
+
+    local zip_file="${temp_dir}/${artifact_name}"
+
+    # Try gh CLI first (works for private repos)
+    if check_command_exists gh && gh auth status &>/dev/null; then
+        print_info "Downloading release asset using gh CLI..."
+
+        # Try with 'v' prefix first, then without
+        if ! gh release download "v${version}" --repo "$repo" --pattern "$artifact_name" --dir "$temp_dir" 2>/dev/null; then
+            gh release download "${version}" --repo "$repo" --pattern "$artifact_name" --dir "$temp_dir" 2>/dev/null || true
+        fi
+    fi
+
+    # Fallback to GitHub API if gh CLI didn't work
+    if [[ ! -f "$zip_file" ]] || [[ ! -s "$zip_file" ]]; then
+        print_info "Downloading release asset using GitHub API..."
+
+        local api_url="https://api.github.com/repos/${repo}/releases/tags/v${version}"
+        local auth_header=""
+
+        if [[ -n "${GITHUB_PAT:-}" ]]; then
+            auth_header="Authorization: token $GITHUB_PAT"
+        fi
+
+        local asset_url
+        if [[ -n "$auth_header" ]]; then
+            asset_url=$(curl -sH "$auth_header" "$api_url" | \
+                grep -oE "\"browser_download_url\": *\"[^\"]*${artifact_name}\"" | \
+                sed 's/"browser_download_url": *"//' | sed 's/"$//')
+        else
+            asset_url=$(curl -s "$api_url" | \
+                grep -oE "\"browser_download_url\": *\"[^\"]*${artifact_name}\"" | \
+                sed 's/"browser_download_url": *"//' | sed 's/"$//')
+        fi
+
+        if [[ -z "$asset_url" ]]; then
+            print_error "Could not find release asset: $artifact_name"
+            print_info "Ensure the release v${version} exists and has the artifact attached"
+            return 1
+        fi
+
+        print_info "Asset URL: $asset_url"
+
+        if [[ -n "$auth_header" ]]; then
+            if ! curl -sL -H "$auth_header" -o "$zip_file" "$asset_url"; then
+                print_error "Failed to download ${module_name} frontend artifact"
+                return 1
+            fi
+        else
+            if ! curl -sL -o "$zip_file" "$asset_url"; then
+                print_error "Failed to download ${module_name} frontend artifact"
+                return 1
+            fi
+        fi
+    fi
+
+    # Verify download
+    if [[ ! -s "$zip_file" ]]; then
+        print_error "Downloaded file is empty or not found"
+        return 1
+    fi
+
+    print_success "Downloaded: $(basename "$zip_file")"
+
+    # Extract to temp location
+    local extract_dir="${temp_dir}/extracted"
+    mkdir -p "$extract_dir"
+
+    print_info "Extracting archive..."
+
+    if ! check_command_exists unzip; then
+        print_error "unzip is not installed (required for frontend artifacts)"
+        print_info "Install with: sudo apt install unzip  # or: sudo dnf install unzip"
+        return 1
+    fi
+
+    if ! unzip -q "$zip_file" -d "$extract_dir"; then
+        print_error "Failed to extract ${module_name} frontend archive"
+        return 1
+    fi
+
+    # Backup existing module if present
+    if [[ -d "$module_dir" ]] && [[ "$(ls -A $module_dir 2>/dev/null)" ]]; then
+        local backup_dir="${CUSTOMER_MFF_DIR}/${mff_dir}.backup.$(date +%Y%m%d_%H%M%S)"
+        print_info "Backing up existing frontend to: $backup_dir"
+        mv "$module_dir" "$backup_dir"
+    fi
+
+    # Ensure MFF directory exists
+    mkdir -p "$CUSTOMER_MFF_DIR"
+
+    # Create module directory
+    mkdir -p "$module_dir"
+
+    # Find remoteEntry.js to locate the right directory
+    local entry_dir
+    entry_dir=$(find "$extract_dir" -name "remoteEntry.js" -type f -exec dirname {} \; | head -1)
+
+    if [[ -n "$entry_dir" ]]; then
+        mv "${entry_dir}/"* "$module_dir/"
+    elif [[ -d "${extract_dir}/dist" ]]; then
+        mv "${extract_dir}/dist/"* "$module_dir/"
+    elif [[ -f "${extract_dir}/remoteEntry.js" ]]; then
+        mv "${extract_dir}/"* "$module_dir/"
+    else
+        # Find any directory with content
+        local content_dir
+        content_dir=$(find "$extract_dir" -mindepth 1 -maxdepth 2 -type d | head -1)
+        if [[ -n "$content_dir" ]] && [[ -d "$content_dir" ]]; then
+            mv "${content_dir}/"* "$module_dir/" 2>/dev/null || mv "${extract_dir}/"* "$module_dir/"
+        else
+            mv "${extract_dir}/"* "$module_dir/" 2>/dev/null || true
+        fi
+    fi
+
+    # Verify remoteEntry.js exists (critical for Module Federation)
+    if [[ ! -f "${module_dir}/remoteEntry.js" ]]; then
+        print_error "remoteEntry.js not found in extracted archive"
+        print_info "The frontend artifact may not be a Module Federation bundle"
+        return 1
+    fi
+
+    # Write version file
+    echo "$version" > "${module_dir}/.version"
+
+    print_success "${module_name} frontend version $version installed to $module_dir"
+    return 0
+}
+
+# Get installed customer module frontend version
+get_customer_frontend_version() {
+    local mff_dir="$1"
+    local version_file="${CUSTOMER_MFF_DIR}/${mff_dir}/.version"
+
+    if [[ -f "$version_file" ]]; then
+        cat "$version_file"
+    else
+        echo "none"
+    fi
+}
+
+# Remove customer module frontend files
+remove_customer_frontend() {
+    local mff_dir="$1"
+    local module_dir="${CUSTOMER_MFF_DIR}/${mff_dir}"
+
+    if [[ -d "$module_dir" ]]; then
+        print_info "Removing frontend files: $module_dir"
+        rm -rf "$module_dir"
+        print_success "Frontend files removed"
+    else
+        print_info "No frontend files found for: $mff_dir"
+    fi
+
+    # Also clean up any backups
+    local backups
+    backups=$(ls -d "${CUSTOMER_MFF_DIR}/${mff_dir}.backup."* 2>/dev/null || true)
+    if [[ -n "$backups" ]]; then
+        print_info "Removing frontend backups..."
+        rm -rf "${CUSTOMER_MFF_DIR}/${mff_dir}.backup."*
+    fi
+
+    return 0
 }

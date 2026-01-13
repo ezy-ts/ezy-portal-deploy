@@ -106,6 +106,13 @@ main() {
     print_info "Module: $MODULE_NAME"
     print_info "Version: $version"
 
+    # Check if this module has frontend files
+    local mff_dir="${DEPLOY_ROOT}/dist/mff/${MODULE_NAME}"
+    local has_frontend="false"
+    if [[ -d "$mff_dir" ]]; then
+        has_frontend="true"
+    fi
+
     # Confirm removal
     if [[ "$FORCE" != "true" ]]; then
         echo ""
@@ -113,6 +120,9 @@ main() {
         echo "  - Stop and remove the container"
         echo "  - Remove nginx configuration"
         echo "  - Remove docker-compose file"
+        if [[ "$has_frontend" == "true" ]]; then
+            echo "  - Remove frontend files from $mff_dir"
+        fi
         echo "  - Unregister the module"
         echo ""
         print_info "This will NOT drop the database schema"
@@ -146,6 +156,12 @@ main() {
         print_success "Removed: $compose_file"
     else
         print_info "No compose file found"
+    fi
+
+    # Remove frontend files if present (separated architecture)
+    if [[ "$has_frontend" == "true" ]]; then
+        print_subsection "Removing Frontend Files"
+        remove_customer_frontend "$MODULE_NAME"
     fi
 
     # Reload nginx

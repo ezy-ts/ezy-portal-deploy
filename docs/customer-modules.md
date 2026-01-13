@@ -152,33 +152,99 @@ Customer modules are distributed as tarballs containing:
 module-name-1.0.0.tar.gz
 ├── module-manifest.yaml      # Required: Module configuration
 ├── docker-compose.module.yml # Required: Service definition
-├── nginx/                    # Optional: Custom nginx configs
+├── nginx/                    # Optional: Custom nginx configs (unified only)
 │   └── module-locations.conf
 └── README.md                 # Optional: Installation notes
 ```
 
-### module-manifest.yaml
+## Architecture Types
+
+Customer modules support two architecture types:
+
+### Unified Architecture (v1.0)
+A single Docker container serves both the backend API and frontend MFE. This is the traditional approach.
+
+### Separated Architecture (v1.1)
+The backend runs in a Docker container and the frontend is downloaded as a separate artifact (zip file) and served as static files. This architecture:
+- Reduces container size
+- Enables independent frontend/backend versioning
+- Improves static file serving performance
+- Follows the same pattern as standard modules (items, bp, prospects)
+
+## Module Manifest Examples
+
+### Unified Architecture (v1.0)
 
 ```yaml
 version: "1.0"
 
 module:
-  name: red-cloud-quotation-tool
-  displayName: Quotation Tool
+  name: example-module
+  displayName: Example Module
   moduleVersion: "1.0.0"
 
+  # Single container serves both API and MFE
   image:
-    repository: ghcr.io/ezy-ts/red-cloud-quotation-tool
+    repository: ghcr.io/ezy-ts/example-module
     tag: "1.0.0"
 
   port: 5012
   healthEndpoint: /health
 
   database:
-    schema: red_cloud_quotation_tool
+    schema: example_module
 
   dependencies:
     modules: []  # e.g., ["items", "bp"]
+
+  environment:
+    apiKeyEnvVar: EXAMPLE_MODULE_API_KEY
+
+  routing:
+    apiPrefix: /api/example-module
+    mfePrefix: /example-module_mfe
+
+# Optional: Custom nginx configs
+nginx:
+  customConfigs:
+    - source: nginx/module-locations.conf
+      target: conf.d/customer/example-module.conf
+```
+
+### Separated Architecture (v1.1) - Recommended
+
+```yaml
+version: "1.1"
+
+module:
+  name: red-cloud-quotation-tool
+  displayName: Quotation Tool
+  moduleVersion: "1.0.0"
+
+  # Backend and frontend are separate
+  architecture: separated
+
+  # Backend (Docker container)
+  backend:
+    image:
+      repository: ghcr.io/ezy-ts/red-cloud-quotation-tool
+      tag: "1.0.0"
+    port: 5012
+    healthEndpoint: /health
+
+  # Frontend (static files downloaded from release)
+  frontend:
+    artifactPattern: "red-cloud-quotation-tool-frontend-{version}.zip"
+    repository: "ezy-ts/red-cloud-quotation-tool"
+    mffDir: "red-cloud-quotation-tool"
+
+  database:
+    schema: red_cloud_quotation_tool
+
+  dependencies:
+    modules: []
+    services:
+      - report-generator-api
 
   environment:
     apiKeyEnvVar: RED_CLOUD_QUOTATION_TOOL_API_KEY
@@ -187,10 +253,9 @@ module:
     apiPrefix: /api/red-cloud-quotation-tool
     mfePrefix: /red-cloud-quotation-tool_mfe
 
-nginx:
-  customConfigs:
-    - source: nginx/module-locations.conf
-      target: conf.d/customer/red-cloud-quotation-tool.conf
+# Nginx config is auto-generated for separated architecture:
+# - API routes proxy to backend container
+# - MFE served from static files in /dist/mff/{mffDir}/
 ```
 
 ---

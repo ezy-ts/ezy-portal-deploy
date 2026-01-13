@@ -284,13 +284,15 @@ install_nginx_config() {
         copy_custom_nginx_configs "$package_dir" "$manifest_file"
     else
         # Auto-generate nginx config from manifest
-        print_info "Generating nginx configuration..."
+        print_info "Generating nginx configuration (architecture: $MODULE_ARCHITECTURE)..."
         generate_customer_nginx_config \
             "$module_name" \
             "$MODULE_PORT" \
             "$MODULE_API_PREFIX" \
             "$MODULE_MFE_PREFIX" \
-            "$nginx_config_file"
+            "$nginx_config_file" \
+            "$MODULE_ARCHITECTURE" \
+            "$MODULE_FRONTEND_MFF_DIR"
     fi
 
     print_success "Nginx configuration installed"
@@ -415,10 +417,15 @@ main() {
     print_info "Module: $MODULE_NAME"
     print_info "Display Name: $MODULE_DISPLAY_NAME"
     print_info "Version: $MODULE_VERSION"
+    print_info "Architecture: $MODULE_ARCHITECTURE"
     print_info "Image: $MODULE_IMAGE_REPO:$MODULE_IMAGE_TAG"
     print_info "Port: $MODULE_PORT"
     print_info "API Prefix: $MODULE_API_PREFIX"
     print_info "MFE Prefix: $MODULE_MFE_PREFIX"
+    if [[ "$MODULE_HAS_FRONTEND" == "true" ]]; then
+        print_info "Frontend Artifact: $MODULE_FRONTEND_ARTIFACT"
+        print_info "Frontend MFF Dir: $MODULE_FRONTEND_MFF_DIR"
+    fi
     if [[ -n "$MODULE_DEPENDENCIES" ]]; then
         print_info "Module Dependencies: $MODULE_DEPENDENCIES"
     fi
@@ -440,25 +447,47 @@ main() {
     check_module_not_already_running "$MODULE_NAME"
 
     # Pull image (always use the manifest's image tag - it knows the correct tag)
-    print_section "Step 5: Pull Image"
+    print_section "Step 5: Pull Backend Image"
     if ! pull_customer_image "$MODULE_IMAGE_REPO" "$MODULE_IMAGE_TAG"; then
         exit 1
     fi
 
+    # Download frontend artifact for separated architecture
+    if [[ "$MODULE_HAS_FRONTEND" == "true" ]]; then
+        print_section "Step 6: Install Frontend"
+
+        # Use frontend repo from manifest, or derive from GITHUB_REPO
+        local frontend_repo="${MODULE_FRONTEND_REPO:-$GITHUB_REPO}"
+        if [[ -z "$frontend_repo" ]]; then
+            print_error "Frontend repository not specified in manifest and no GITHUB_REPO provided"
+            exit 1
+        fi
+
+        if ! download_customer_frontend \
+            "$MODULE_NAME" \
+            "$MODULE_VERSION" \
+            "$MODULE_FRONTEND_ARTIFACT" \
+            "$frontend_repo" \
+            "$MODULE_FRONTEND_MFF_DIR"; then
+            print_error "Failed to install frontend"
+            exit 1
+        fi
+    fi
+
     # Install nginx config
-    print_section "Step 6: Configure Nginx"
+    print_section "Step 7: Configure Nginx"
     if ! install_nginx_config "$temp_dir" "$MODULE_NAME"; then
         exit 1
     fi
 
     # Install compose file
-    print_section "Step 7: Install Compose File"
+    print_section "Step 8: Install Compose File"
     if ! install_customer_compose_file "$temp_dir" "$MODULE_NAME"; then
         exit 1
     fi
 
     # Handle API key
-    print_section "Step 8: API Key"
+    print_section "Step 9: API Key"
     if ! save_customer_module_api_key "$MODULE_NAME" "$API_KEY" "$MODULE_API_KEY_ENV_VAR"; then
         print_warning "API key not configured - module may not authenticate properly"
         if ! confirm "Continue anyway?" "n"; then
@@ -467,17 +496,17 @@ main() {
     fi
 
     # Start the module
-    print_section "Step 9: Start Module"
+    print_section "Step 10: Start Module"
     if ! start_customer_module "$MODULE_NAME"; then
         exit 1
     fi
 
     # Reload nginx
-    print_section "Step 10: Reload Nginx"
+    print_section "Step 11: Reload Nginx"
     reload_nginx || true
 
     # Wait for healthy
-    print_section "Step 11: Health Check"
+    print_section "Step 12: Health Check"
     wait_for_customer_module_healthy "$MODULE_NAME" 120 || true
 
     # Register module
@@ -489,15 +518,19 @@ main() {
     print_section "Installation Complete!"
     print_success "Customer module '$MODULE_NAME' installed successfully!"
     echo ""
-    echo "  Module:      $MODULE_DISPLAY_NAME"
-    echo "  Version:     $MODULE_VERSION"
-    echo "  API URL:     $app_url$MODULE_API_PREFIX/"
-    echo "  MFE URL:     $app_url$MODULE_MFE_PREFIX/"
-    echo "  Container:   $MODULE_NAME"
-    echo "  Logs:        docker logs $MODULE_NAME"
+    echo "  Module:       $MODULE_DISPLAY_NAME"
+    echo "  Version:      $MODULE_VERSION"
+    echo "  Architecture: $MODULE_ARCHITECTURE"
+    echo "  API URL:      $app_url$MODULE_API_PREFIX/"
+    echo "  MFE URL:      $app_url$MODULE_MFE_PREFIX/"
+    echo "  Container:    $MODULE_NAME"
+    if [[ "$MODULE_HAS_FRONTEND" == "true" ]]; then
+        echo "  Frontend:     ${DEPLOY_ROOT}/dist/mff/${MODULE_FRONTEND_MFF_DIR}/"
+    fi
+    echo "  Logs:         docker logs $MODULE_NAME"
     echo ""
 
-    log_info "Customer module added: $MODULE_NAME v$MODULE_VERSION"
+    log_info "Customer module added: $MODULE_NAME v$MODULE_VERSION (architecture: $MODULE_ARCHITECTURE)"
 }
 
 main "$@"
