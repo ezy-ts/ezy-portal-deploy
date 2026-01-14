@@ -45,6 +45,7 @@ declare -A MODULE_DEPENDENCIES=(
     ["bp"]=""
     ["prospects"]=""
     ["pricing-tax"]=""
+    ["crm"]=""
 )
 
 # API key variable names
@@ -53,6 +54,7 @@ declare -A MODULE_API_KEY_VARS=(
     ["bp"]="BP_API_KEY"
     ["prospects"]="PROSPECTS_API_KEY"
     ["pricing-tax"]="PRICING_TAX_API_KEY"
+    ["crm"]="CRM_API_KEY"
 )
 
 # Modules with separated frontend artifacts (downloaded separately from backend)
@@ -61,6 +63,7 @@ declare -A MODULE_HAS_FRONTEND=(
     ["bp"]="true"
     ["prospects"]="true"
     ["pricing-tax"]="true"
+    ["crm"]="true"
 )
 
 # -----------------------------------------------------------------------------
@@ -76,9 +79,9 @@ parse_arguments() {
     shift
 
     # Validate module name
-    if [[ ! "$MODULE" =~ ^(items|bp|prospects|pricing-tax)$ ]]; then
+    if [[ ! "$MODULE" =~ ^(items|bp|prospects|pricing-tax|crm)$ ]]; then
         print_error "Invalid module: $MODULE"
-        print_info "Available modules: items, bp, prospects, pricing-tax"
+        print_info "Available modules: items, bp, prospects, pricing-tax, crm"
         exit 1
     fi
 
@@ -123,6 +126,7 @@ show_help() {
     echo "  bp           Business Partners (requires: items)"
     echo "  prospects    Prospects (requires: bp, items)"
     echo "  pricing-tax  Pricing & Tax module (separated frontend/backend)"
+    echo "  crm          CRM module (sales pipeline management)"
     echo ""
     echo "Options:"
     echo "  --api-key KEY    API key for the module (optional - auto-provisioned if not provided)"
@@ -259,7 +263,7 @@ start_module() {
 
     # Include dependency compose files in order
     local compose_args="-f $base_compose"
-    local ordered_modules=("items" "bp" "prospects" "pricing-tax")
+    local ordered_modules=("items" "bp" "prospects" "pricing-tax" "crm")
 
     for m in "${ordered_modules[@]}"; do
         local m_compose="$DEPLOY_ROOT/docker/docker-compose.module-${m}.yml"

@@ -1,0 +1,81 @@
+# =============================================================================
+# EZY Portal - CRM Module
+# =============================================================================
+# Backend-only container for CRM microservice.
+# Frontend is served as static files from /dist/mff/crm/
+#
+# Usage:
+#   docker compose -f docker-compose.full.yml \
+#                  -f docker-compose.module-crm.yml \
+#                  --env-file ../portal.env up -d
+# =============================================================================
+
+services:
+  crm:
+    image: ${CRM_IMAGE:-ghcr.io/ezy-ts/ezy-portal-crm}:${CRM_VERSION:-latest}
+    container_name: ${PROJECT_NAME:-ezy-portal}-crm
+    expose:
+      - "5016"
+    environment:
+      # Server configuration
+      - PORT=5016
+      - GIN_MODE=release
+      - LOG_LEVEL=${LOG_LEVEL:-info}
+      - TRUSTED_PROXIES=none
+
+      # Database configuration
+      - DB_HOST=${DB_HOST:-postgres}
+      - DB_PORT=${DB_PORT:-5432}
+      - DB_USER=${POSTGRES_USER:-postgres}
+      - DB_PASSWORD=${POSTGRES_PASSWORD}
+      - DB_NAME=${POSTGRES_DB:-portal}
+      - DB_SCHEMA=crm,public
+      - DB_SSLMODE=${DB_SSLMODE:-disable}
+      - DB_TIMEZONE=${DB_TIMEZONE:-UTC}
+
+      # Portal integration
+      - PORTAL_API_URL=http://portal:8080
+      - PORTAL_API_KEY=${CRM_API_KEY}
+      - MICRO_SERVICE_ID=crmApp
+      - SERVICE_URL=http://crm:5016
+
+      # RabbitMQ configuration
+      - RABBITMQ_ENABLED=${RabbitMq__Enabled:-false}
+      - RABBITMQ_HOST=${RABBITMQ_HOST:-rabbitmq}
+      - RABBITMQ_PORT=${RABBITMQ_PORT:-5672}
+      - RABBITMQ_USER=${RABBITMQ_USER:-portal}
+      - RABBITMQ_PASSWORD=${RABBITMQ_PASSWORD}
+      - RABBITMQ_VHOST=${RABBITMQ_VHOST:-/}
+      - RABBITMQ_TENANT_EVENTS_EXCHANGE=${RABBITMQ_TENANT_EVENTS_EXCHANGE:-tenant.events}
+      - BP_EVENTS_EXCHANGE=bp.events
+      - CRM_EVENTS_EXCHANGE=crm.events
+
+      # Metrics (optional)
+      - METRICS_ENABLED=${METRICS_ENABLED:-false}
+      - METRICS_PORT=9016
+
+    depends_on:
+      portal:
+        condition: service_healthy
+
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "-", "http://localhost:5016/health"]
+      interval: 30s
+      timeout: 10s
+      start_period: 20s
+      retries: 5
+
+    restart: unless-stopped
+
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+    networks:
+      - portal-network
+
+networks:
+  portal-network:
+    external: true
