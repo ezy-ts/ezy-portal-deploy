@@ -6,6 +6,7 @@
 portal.env
 *.env
 !config/*.template
+!scripts/certbot/*.env.example
 !config/*.minimal
 !config/*.full-infra
 !config/*.external-infra
