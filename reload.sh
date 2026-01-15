@@ -78,27 +78,40 @@ reload_service() {
     if [[ -n "$service" ]]; then
         print_section "Reloading: $service"
 
-        # Stop the specific service
+        # Stop and remove just this service container directly
         print_info "Stopping $service..."
         docker compose $compose_args --env-file "$DEPLOY_ROOT/portal.env" stop "$service"
         docker compose $compose_args --env-file "$DEPLOY_ROOT/portal.env" rm -f "$service"
 
-        # Start it back up
-        print_info "Starting $service..."
-        docker compose $compose_args --env-file "$DEPLOY_ROOT/portal.env" up -d "$service"
+        # Recreate with --no-deps to avoid touching infrastructure
+        print_info "Starting $service (without recreating dependencies)..."
+        docker compose $compose_args --env-file "$DEPLOY_ROOT/portal.env" up -d --no-deps --force-recreate "$service"
 
         print_success "$service reloaded with new configuration"
     else
-        print_section "Reloading All Services"
+        print_section "Reloading Application Services"
 
-        # Down then up to pick up all env changes
-        print_info "Stopping all services..."
-        docker compose $compose_args --env-file "$DEPLOY_ROOT/portal.env" down
+        # Only reload app services, not infrastructure (postgres, redis, rabbitmq)
+        local app_services
+        app_services=$(docker compose $compose_args --env-file "$DEPLOY_ROOT/portal.env" ps --services 2>/dev/null | grep -v -E '^(postgres|redis|rabbitmq)$' || true)
 
-        print_info "Starting all services..."
-        docker compose $compose_args --env-file "$DEPLOY_ROOT/portal.env" up -d
+        if [[ -z "$app_services" ]]; then
+            print_warning "No application services found to reload"
+            return 0
+        fi
 
-        print_success "All services reloaded with new configuration"
+        print_info "Services to reload: $(echo $app_services | tr '\n' ' ')"
+        print_info "Infrastructure (postgres, redis, rabbitmq) will NOT be touched"
+        echo ""
+
+        for svc in $app_services; do
+            print_info "Reloading $svc..."
+            docker compose $compose_args --env-file "$DEPLOY_ROOT/portal.env" stop "$svc"
+            docker compose $compose_args --env-file "$DEPLOY_ROOT/portal.env" rm -f "$svc"
+            docker compose $compose_args --env-file "$DEPLOY_ROOT/portal.env" up -d --no-deps --force-recreate "$svc"
+        done
+
+        print_success "All application services reloaded with new configuration"
     fi
 }
 

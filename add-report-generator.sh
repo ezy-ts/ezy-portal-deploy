@@ -220,7 +220,8 @@ start_service() {
     fi
 
     # Use -p to group with other portal containers
-    local cmd="docker compose -p $project_name $compose_args --env-file $DEPLOY_ROOT/portal.env up -d"
+    # Use --no-deps to avoid touching infrastructure (postgres, redis, rabbitmq)
+    local cmd="docker compose -p $project_name $compose_args --env-file $DEPLOY_ROOT/portal.env up -d --no-deps"
     log_info "Running: $cmd"
 
     if eval "$cmd"; then

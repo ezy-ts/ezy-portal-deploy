@@ -325,9 +325,14 @@ step_start_new_version() {
     compose_args=$(get_compose_files_for_modules "$INFRASTRUCTURE_MODE" "${MODULES:-portal}")
 
     print_info "Starting with compose files: $compose_args"
+    print_info "Infrastructure (postgres, redis, rabbitmq) will NOT be recreated"
 
-    # Start services using compose args directly
-    local cmd="docker compose $compose_args --env-file $DEPLOY_ROOT/portal.env up -d"
+    # Get list of app services to start (exclude infrastructure)
+    local app_services
+    app_services=$(docker compose $compose_args --env-file "$DEPLOY_ROOT/portal.env" config --services 2>/dev/null | grep -v -E '^(postgres|redis|rabbitmq)$' || true)
+
+    # Start only app services with --no-deps to avoid touching infrastructure
+    local cmd="docker compose $compose_args --env-file $DEPLOY_ROOT/portal.env up -d --no-deps --force-recreate $app_services"
     log_info "Running: $cmd"
 
     if eval "$cmd"; then
@@ -423,21 +428,34 @@ do_rollback() {
     fi
 
     print_info "Rolling back to version: $rollback_version"
+    print_info "Infrastructure (postgres, redis, rabbitmq) will NOT be touched"
 
     # Update version in config
     save_config_value "VERSION" "$rollback_version" "$DEPLOY_ROOT/portal.env"
 
-    # Restart with old version
-    local compose_file
-    compose_file=$(get_compose_file "$INFRASTRUCTURE_MODE")
+    # Get compose files
+    local compose_args
+    compose_args=$(get_compose_files_for_modules "$INFRASTRUCTURE_MODE" "${MODULES:-portal}")
 
-    docker_compose_down "$compose_file"
-    docker_compose_up "$compose_file" "$DEPLOY_ROOT/portal.env"
+    # Get list of app services (exclude infrastructure)
+    local app_services
+    app_services=$(docker compose $compose_args --env-file "$DEPLOY_ROOT/portal.env" config --services 2>/dev/null | grep -v -E '^(postgres|redis|rabbitmq)$' || true)
+
+    # Stop only app services
+    print_info "Stopping app services..."
+    for svc in $app_services; do
+        docker compose $compose_args --env-file "$DEPLOY_ROOT/portal.env" stop "$svc" 2>/dev/null || true
+        docker compose $compose_args --env-file "$DEPLOY_ROOT/portal.env" rm -f "$svc" 2>/dev/null || true
+    done
+
+    # Start app services with rolled back version
+    print_info "Starting app services with rolled back version..."
+    docker compose $compose_args --env-file "$DEPLOY_ROOT/portal.env" up -d --no-deps --force-recreate $app_services
 
     # Restore database if needed
     if [[ -f "$backup_path/database.sql" ]]; then
         print_info "Restoring database..."
-        sleep 10  # Wait for postgres to start
+        sleep 10  # Wait for postgres to be ready
         restore_database "$backup_path"
     fi
 
