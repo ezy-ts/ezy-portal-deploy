@@ -1,0 +1,17 @@
+# =============================================================================
+# EZY Portal - SBO Insights Module Resource Limits
+# =============================================================================
+# High-performance overlay for the SBO Insights module.
+# Applied when PERF_MODE=high is set.
+# =============================================================================
+
+services:
+  sbo-insights:
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+          cpus: '2'
+        reservations:
+          memory: 1G
+          cpus: '1'

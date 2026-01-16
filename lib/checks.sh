@@ -372,6 +372,88 @@ check_external_rabbitmq() {
 }
 
 # -----------------------------------------------------------------------------
+# Directory Permission Checks
+# -----------------------------------------------------------------------------
+
+# Check if uploads directory has correct permissions for Docker containers
+# The portal backend needs to create subdirectories like data-protection-keys
+check_uploads_permissions() {
+    local deploy_root="${DEPLOY_ROOT:-$(get_deploy_root)}"
+    local uploads_dir="$deploy_root/uploads"
+
+    # Create uploads directory if it doesn't exist
+    if [[ ! -d "$uploads_dir" ]]; then
+        mkdir -p "$uploads_dir" 2>/dev/null || true
+    fi
+
+    # Check if we can write to uploads directory
+    if [[ ! -w "$uploads_dir" ]]; then
+        return 1
+    fi
+
+    # Check if we can create subdirectories (simulating what Docker container does)
+    local test_dir="$uploads_dir/.permission-test-$$"
+    if mkdir -p "$test_dir" 2>/dev/null; then
+        rmdir "$test_dir" 2>/dev/null
+        return 0
+    fi
+
+    return 1
+}
+
+# Interactively fix uploads directory permissions
+# Loops until permissions are correct or user cancels
+fix_uploads_permissions_interactive() {
+    local deploy_root="${DEPLOY_ROOT:-$(get_deploy_root)}"
+    local uploads_dir="$deploy_root/uploads"
+
+    # First check if permissions are already correct
+    if check_uploads_permissions; then
+        print_success "Uploads directory permissions are correct"
+        return 0
+    fi
+
+    print_warning "Uploads directory needs write permissions for Docker containers"
+    print_info "The portal backend creates subdirectories in: $uploads_dir"
+    echo ""
+
+    # Create the directory structure first
+    mkdir -p "$uploads_dir/data-protection-keys" 2>/dev/null || true
+
+    local sudo_cmd="sudo chmod -R 777 $uploads_dir && sudo chown -R \$(id -u):\$(id -g) $uploads_dir"
+
+    while true; do
+        print_info "Please run the following command in another terminal:"
+        echo ""
+        echo "  $sudo_cmd"
+        echo ""
+
+        if [[ "${INTERACTIVE:-true}" != "true" ]]; then
+            print_error "Cannot fix permissions in non-interactive mode"
+            print_info "Run manually: $sudo_cmd"
+            return 1
+        fi
+
+        echo -n "Press Enter after running the command (or 'q' to quit): "
+        read -r response
+
+        if [[ "$response" == "q" ]] || [[ "$response" == "Q" ]]; then
+            print_error "Permission fix cancelled"
+            return 1
+        fi
+
+        # Re-check permissions
+        if check_uploads_permissions; then
+            print_success "Uploads directory permissions are now correct"
+            return 0
+        fi
+
+        print_error "Permissions still incorrect. Please try again."
+        echo ""
+    done
+}
+
+# -----------------------------------------------------------------------------
 # Main Prerequisite Check
 # -----------------------------------------------------------------------------
 

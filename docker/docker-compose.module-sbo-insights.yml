@@ -1,0 +1,111 @@
+# =============================================================================
+# EZY Portal - SBO Insights Module
+# =============================================================================
+# Backend-only container for sbo-insights microservice.
+# Frontend is served as static files from /dist/mff/sbo-insights/
+#
+# Usage:
+#   docker compose -f docker-compose.full.yml \
+#                  -f docker-compose.module-sbo-insights.yml \
+#                  --env-file ../portal.env up -d
+# =============================================================================
+
+services:
+  sbo-insights:
+    image: ${SBO_INSIGHTS_IMAGE:-ghcr.io/ezy-ts/ezy-portal-sbo-insights}:${SBO_INSIGHTS_VERSION:-latest}
+    container_name: ${PROJECT_NAME:-ezy-portal}-sbo-insights
+    expose:
+      - "5009"
+    environment:
+      # Server configuration
+      - PORT=5009
+      - GIN_MODE=release
+      - LOG_LEVEL=${LOG_LEVEL:-info}
+      - TRUSTED_PROXIES=none
+
+      # Database configuration
+      - DB_HOST=${DB_HOST:-postgres}
+      - DB_PORT=${DB_PORT:-5432}
+      - DB_USER=${POSTGRES_USER:-postgres}
+      - DB_PASSWORD=${POSTGRES_PASSWORD}
+      - DB_NAME=${POSTGRES_DB:-portal}
+      - DB_SCHEMA=sbo_insights,public
+      - DB_SSLMODE=${DB_SSLMODE:-disable}
+      - DB_TIMEZONE=${DB_TIMEZONE:-UTC}
+
+      # Portal integration
+      - PORTAL_API_URL=http://portal:8080
+      - PORTAL_API_KEY=${SBO_INSIGHTS_API_KEY}
+      - MICRO_SERVICE_ID=sboInsightsApp
+      - SERVICE_URL=http://sbo-insights:5009
+
+      # RabbitMQ configuration
+      - RABBITMQ_ENABLED=${RabbitMq__Enabled:-false}
+      - RABBITMQ_HOST=${RABBITMQ_HOST:-rabbitmq}
+      - RABBITMQ_PORT=${RABBITMQ_PORT:-5672}
+      - RABBITMQ_USER=${RABBITMQ_USER:-portal}
+      - RABBITMQ_PASSWORD=${RABBITMQ_PASSWORD}
+      - RABBITMQ_VHOST=${RABBITMQ_VHOST:-/}
+      - RABBITMQ_TENANT_EVENTS_EXCHANGE=${RABBITMQ_TENANT_EVENTS_EXCHANGE:-tenant.events}
+
+      # CORS
+      - CORS_ALLOWED_ORIGINS=${APPLICATION_URL:-https://localhost}
+
+      # SAP Data Source Configuration
+      - SAP_DATA_SOURCE=${SBO_INSIGHTS_DATA_SOURCE:-mssql}
+
+      # MSSQL Configuration (when SAP_DATA_SOURCE=mssql)
+      - MSSQL_SERVER=${SBO_INSIGHTS_MSSQL_SERVER:-host.docker.internal}
+      - MSSQL_PORT=${SBO_INSIGHTS_MSSQL_PORT:-1433}
+      - MSSQL_USER=${SBO_INSIGHTS_MSSQL_USER:-sa}
+      - MSSQL_PASSWORD=${SBO_INSIGHTS_MSSQL_PASSWORD}
+      - MSSQL_DATABASE=${SBO_INSIGHTS_MSSQL_DATABASE}
+      - MSSQL_ENCRYPT=${SBO_INSIGHTS_MSSQL_ENCRYPT:-disable}
+
+      # SAP HANA Configuration (when SAP_DATA_SOURCE=hana)
+      - HANA_HOST=${SBO_INSIGHTS_HANA_HOST}
+      - HANA_PORT=${SBO_INSIGHTS_HANA_PORT:-30015}
+      - HANA_USER=${SBO_INSIGHTS_HANA_USER}
+      - HANA_PASSWORD=${SBO_INSIGHTS_HANA_PASSWORD}
+      - HANA_DATABASE=${SBO_INSIGHTS_HANA_DATABASE}
+      - HANA_TLS=${SBO_INSIGHTS_HANA_TLS:-false}
+
+      # Artifact Client Configuration (when SAP_DATA_SOURCE=artifact)
+      - ARTIFACT_BASE_URL=${SBO_INSIGHTS_ARTIFACT_BASE_URL}
+      - ARTIFACT_API_KEY=${SBO_INSIGHTS_ARTIFACT_API_KEY}
+      - ARTIFACT_TIMEOUT=${SBO_INSIGHTS_ARTIFACT_TIMEOUT:-30}
+      - ARTIFACT_INSECURE_SKIP_VERIFY=${SBO_INSIGHTS_ARTIFACT_INSECURE_SKIP_VERIFY:-false}
+
+      # Metrics (optional)
+      - METRICS_ENABLED=${METRICS_ENABLED:-false}
+      - METRICS_PORT=9009
+
+    depends_on:
+      portal:
+        condition: service_healthy
+
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "-", "http://localhost:5009/health"]
+      interval: 30s
+      timeout: 10s
+      start_period: 20s
+      retries: 5
+
+    restart: unless-stopped
+
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+    networks:
+      - portal-network
+      - ops-dev-ezy-network
+
+networks:
+  portal-network:
+    external: true
+  ops-dev-ezy-network:
+    name: ops-dev_ezy-network
+    external: true

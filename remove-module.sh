@@ -35,6 +35,9 @@ declare -A REVERSE_DEPENDENCIES=(
     ["items"]="bp"
     ["bp"]="prospects"
     ["prospects"]=""
+    ["pricing-tax"]=""
+    ["crm"]=""
+    ["sbo-insights"]=""
 )
 
 # API key variable names
@@ -43,6 +46,8 @@ declare -A MODULE_API_KEY_VARS=(
     ["bp"]="BP_API_KEY"
     ["prospects"]="PROSPECTS_API_KEY"
     ["pricing-tax"]="PRICING_TAX_API_KEY"
+    ["crm"]="CRM_API_KEY"
+    ["sbo-insights"]="SBO_INSIGHTS_API_KEY"
 )
 
 # -----------------------------------------------------------------------------
@@ -58,9 +63,9 @@ parse_arguments() {
     shift
 
     # Validate module name
-    if [[ ! "$MODULE" =~ ^(items|bp|prospects|pricing-tax)$ ]]; then
+    if [[ ! "$MODULE" =~ ^(items|bp|prospects|pricing-tax|crm|sbo-insights)$ ]]; then
         print_error "Invalid module: $MODULE"
-        print_info "Available modules: items, bp, prospects, pricing-tax"
+        print_info "Available modules: items, bp, prospects, pricing-tax, crm, sbo-insights"
         exit 1
     fi
 
@@ -97,9 +102,12 @@ show_help() {
     echo "Usage: ./remove-module.sh <module> [OPTIONS]"
     echo ""
     echo "Modules:"
-    echo "  items       Items micro-frontend (base module)"
-    echo "  bp          Business Partners (requires: items)"
-    echo "  prospects   Prospects (requires: bp, items)"
+    echo "  items        Items micro-frontend (base module)"
+    echo "  bp           Business Partners (requires: items)"
+    echo "  prospects    Prospects (requires: bp, items)"
+    echo "  pricing-tax  Pricing & Tax module"
+    echo "  crm          CRM module (sales pipeline management)"
+    echo "  sbo-insights SBO Insights module (price lists, analytics)"
     echo ""
     echo "Options:"
     echo "  --force, -f     Skip confirmation prompt"

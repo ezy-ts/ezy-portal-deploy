@@ -294,7 +294,10 @@ step_create_directories() {
     local dirs=(
         "$DEPLOY_ROOT/backups"
         "$DEPLOY_ROOT/logs"
+        "$DEPLOY_ROOT/logs/portal"
         "$DEPLOY_ROOT/data"
+        "$DEPLOY_ROOT/uploads"
+        "$DEPLOY_ROOT/uploads/data-protection-keys"
         "$DEPLOY_ROOT/dist/frontend"
         "$DEPLOY_ROOT/dist/mff"
     )
@@ -317,6 +320,15 @@ step_create_directories() {
     chmod +x "$DEPLOY_ROOT/nginx/ssl/generate-self-signed.sh" 2>/dev/null || true
 
     print_success "Directories ready"
+
+    # Check and fix uploads directory permissions
+    # Docker containers need to create subdirectories in uploads/
+    print_subsection "Checking Uploads Directory Permissions"
+    if ! fix_uploads_permissions_interactive; then
+        print_error "Cannot proceed without correct uploads permissions"
+        print_info "The portal backend will fail to start without write access to uploads/"
+        exit 1
+    fi
 }
 
 step_pull_image() {

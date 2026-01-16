@@ -225,7 +225,7 @@ start_standard_module() {
 
     # Include dependency compose files in order
     local compose_args="-f $base_compose"
-    local ordered_modules=("items" "bp" "prospects" "pricing-tax")
+    local ordered_modules=("items" "bp" "prospects" "pricing-tax" "crm" "sbo-insights")
 
     for m in "${ordered_modules[@]}"; do
         local m_compose="${DEPLOY_ROOT}/docker/docker-compose.module-${m}.yml"
