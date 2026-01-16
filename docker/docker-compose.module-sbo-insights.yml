@@ -101,11 +101,7 @@ services:
 
     networks:
       - portal-network
-      - ops-dev-ezy-network
 
 networks:
   portal-network:
-    external: true
-  ops-dev-ezy-network:
-    name: ops-dev_ezy-network
     external: true
