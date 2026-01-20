@@ -160,13 +160,16 @@ parse_manifest() {
     # Check for required environment variables in manifest
     MODULE_HAS_REQUIRED_ENV=$(yq '.module.environment.required | length > 0' "$manifest_file")
 
+    # Check for supplementary files (sql, config directories)
+    MODULE_HAS_SUPPLEMENTARY_FILES=$(yq '.supplementaryFiles | length > 0' "$manifest_file")
+
     # Export for use by calling script
     export MODULE_NAME MODULE_DISPLAY_NAME MODULE_VENDOR MODULE_VERSION MODULE_ARCHITECTURE
     export MODULE_IMAGE_REPO MODULE_IMAGE_TAG MODULE_PORT MODULE_HEALTH_ENDPOINT
     export MODULE_DB_SCHEMA MODULE_DEPENDENCIES MODULE_SERVICE_DEPENDENCIES MODULE_API_KEY_ENV_VAR
     export MODULE_API_PREFIX MODULE_MFE_PREFIX MODULE_HAS_CUSTOM_NGINX
     export MODULE_HAS_FRONTEND MODULE_FRONTEND_ARTIFACT MODULE_FRONTEND_REPO MODULE_FRONTEND_MFF_DIR
-    export MODULE_HAS_REQUIRED_ENV
+    export MODULE_HAS_REQUIRED_ENV MODULE_HAS_SUPPLEMENTARY_FILES
 
     return 0
 }
@@ -794,6 +797,85 @@ install_customer_compose_file() {
     print_info "Container name set to: ${module_name}"
 
     print_success "Installed compose file: $target_file"
+
+    return 0
+}
+
+# Install supplementary files (sql, config directories) from package
+# IMPORTANT: Does NOT overwrite existing files to preserve customer customizations
+# Usage: install_supplementary_files <package_dir> <manifest_file>
+install_supplementary_files() {
+    local package_dir="$1"
+    local manifest_file="$2"
+
+    local file_count
+    file_count=$(yq '.supplementaryFiles | length' "$manifest_file" 2>/dev/null)
+
+    if [[ "$file_count" == "0" || "$file_count" == "null" || -z "$file_count" ]]; then
+        debug "No supplementary files defined in manifest"
+        return 0
+    fi
+
+    print_info "Installing supplementary files..."
+
+    local installed=0
+    local skipped=0
+
+    for ((i=0; i<file_count; i++)); do
+        local source
+        local target
+        local description
+
+        source=$(yq ".supplementaryFiles[$i].source" "$manifest_file" | tr -d '"')
+        target=$(yq ".supplementaryFiles[$i].target" "$manifest_file" | tr -d '"')
+        description=$(yq ".supplementaryFiles[$i].description // \"\"" "$manifest_file" | tr -d '"')
+
+        local source_path="${package_dir}/${source}"
+        local target_path="${DEPLOY_ROOT}/${target}"
+
+        if [[ ! -e "$source_path" ]]; then
+            print_warning "Supplementary source not found in package: $source"
+            continue
+        fi
+
+        # Check if target already exists
+        if [[ -e "$target_path" ]]; then
+            print_info "Keeping existing: $target (not overwriting)"
+            ((skipped++))
+            # Merge new files that don't exist yet
+            if [[ -d "$source_path" ]]; then
+                # For directories, copy only files that don't exist
+                local new_files=0
+                while IFS= read -r -d '' file; do
+                    local rel_path="${file#$source_path/}"
+                    local dest_file="${target_path}/${rel_path}"
+                    if [[ ! -e "$dest_file" ]]; then
+                        mkdir -p "$(dirname "$dest_file")"
+                        cp "$file" "$dest_file"
+                        ((new_files++))
+                        debug "Added new file: $rel_path"
+                    fi
+                done < <(find "$source_path" -type f -print0)
+                if [[ $new_files -gt 0 ]]; then
+                    print_info "Added $new_files new files to existing $target"
+                fi
+            fi
+        else
+            # Target doesn't exist - copy everything
+            mkdir -p "$(dirname "$target_path")"
+            cp -r "$source_path" "$target_path"
+            ((installed++))
+            if [[ -n "$description" ]]; then
+                print_success "Installed: $target ($description)"
+            else
+                print_success "Installed: $target"
+            fi
+        fi
+    done
+
+    if [[ $installed -gt 0 || $skipped -gt 0 ]]; then
+        print_info "Supplementary files: $installed installed, $skipped preserved"
+    fi
 
     return 0
 }

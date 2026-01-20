@@ -493,6 +493,12 @@ main() {
         exit 1
     fi
 
+    # Install supplementary files (sql, config directories)
+    if [[ "$MODULE_HAS_SUPPLEMENTARY_FILES" == "true" ]]; then
+        print_section "Step 8b: Install Supplementary Files"
+        install_supplementary_files "$temp_dir" "${temp_dir}/module-manifest.yaml"
+    fi
+
     # Handle API key
     print_section "Step 9: API Key"
     if ! save_customer_module_api_key "$MODULE_NAME" "$API_KEY" "$MODULE_API_KEY_ENV_VAR"; then
