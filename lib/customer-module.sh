@@ -438,6 +438,12 @@ copy_custom_nginx_configs() {
             continue
         fi
 
+        # Preserve existing nginx configuration
+        if [[ -f "$target_path" ]]; then
+            print_info "Preserving existing nginx config: $target"
+            continue
+        fi
+
         # Create target directory if needed
         mkdir -p "$(dirname "$target_path")"
 

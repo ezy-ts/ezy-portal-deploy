@@ -278,6 +278,13 @@ install_nginx_config() {
 
     local nginx_config_file="${CUSTOMER_NGINX_DIR}/${module_name}.conf"
 
+    # Preserve existing nginx configuration
+    if [[ -f "$nginx_config_file" ]]; then
+        print_info "Nginx configuration already exists: $nginx_config_file"
+        print_info "Preserving existing configuration (delete manually to regenerate)"
+        return 0
+    fi
+
     # Check if custom nginx configs are provided
     if [[ "$MODULE_HAS_CUSTOM_NGINX" == "true" ]]; then
         print_info "Installing custom nginx configurations..."
