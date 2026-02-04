@@ -47,6 +47,24 @@ services:
       - "host.docker.internal:host-gateway"
 
   # ---------------------------------------------------------------------------
+  # ClamAV Antivirus Scanner (SEC-09)
+  # ---------------------------------------------------------------------------
+  clamav:
+    image: clamav/clamav:latest
+    container_name: ${PROJECT_NAME:-ezy-portal}-clamav
+    volumes:
+      - clamav-signatures:/var/lib/clamav
+    healthcheck:
+      test: ["CMD", "clamdcheck"]
+      interval: 60s
+      timeout: 10s
+      retries: 3
+      start_period: 120s
+    restart: unless-stopped
+    networks:
+      - portal-network
+
+  # ---------------------------------------------------------------------------
   # Nginx Reverse Proxy (also serves frontend static files)
   # ---------------------------------------------------------------------------
   nginx:
@@ -87,6 +105,8 @@ volumes:
     name: ${PROJECT_NAME:-ezy-portal}-nginx-cache
   nginx-logs:
     name: ${PROJECT_NAME:-ezy-portal}-nginx-logs
+  clamav-signatures:
+    name: ${PROJECT_NAME:-ezy-portal}-clamav-signatures
 
 # -----------------------------------------------------------------------------
 # Networks

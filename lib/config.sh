@@ -582,6 +582,26 @@ prompt_features_config() {
         save_config_value "Frontend__Features__DarkModeEnabled" "false" "$config_file"
     fi
 
+    # ClamAV Antivirus Scanning (SEC-09)
+    echo ""
+    print_info "ClamAV provides real-time antivirus scanning for uploaded files."
+    print_info "Requires ~1GB RAM and ~500MB disk for virus signatures."
+    echo ""
+
+    if confirm "Enable ClamAV antivirus scanning?" "n"; then
+        save_config_value "CLAMAV_ENABLED" "true" "$config_file"
+        save_config_value "CLAMAV_HOST" "clamav" "$config_file"
+        save_config_value "CLAMAV_PORT" "3310" "$config_file"
+        save_config_value "CLAMAV_FAIL_OPEN" "false" "$config_file"
+        print_success "ClamAV antivirus scanning enabled"
+    else
+        save_config_value "CLAMAV_ENABLED" "false" "$config_file"
+        save_config_value "CLAMAV_HOST" "clamav" "$config_file"
+        save_config_value "CLAMAV_PORT" "3310" "$config_file"
+        save_config_value "CLAMAV_FAIL_OPEN" "false" "$config_file"
+        print_info "ClamAV disabled (file uploads will not be scanned)"
+    fi
+
     print_success "Features configured"
 }
 
@@ -623,6 +643,12 @@ create_default_config() {
     # Feature flags - enable by default
     save_config_value "ADVANCED_SEARCH_ENABLED" "true" "$config_file"
     save_config_value "Frontend__Features__DarkModeEnabled" "true" "$config_file"
+
+    # ClamAV - disabled by default
+    save_config_value "CLAMAV_ENABLED" "false" "$config_file"
+    save_config_value "CLAMAV_HOST" "clamav" "$config_file"
+    save_config_value "CLAMAV_PORT" "3310" "$config_file"
+    save_config_value "CLAMAV_FAIL_OPEN" "false" "$config_file"
 
     print_success "Default configuration created: $config_file"
     print_warning "Please edit the configuration file to set:"
