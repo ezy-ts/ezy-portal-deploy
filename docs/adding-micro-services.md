@@ -136,7 +136,7 @@ location /api/{name}/ {
 
     add_header Access-Control-Allow-Origin "*" always;
     add_header Access-Control-Allow-Methods "GET, POST, PUT, PATCH, DELETE, OPTIONS" always;
-    add_header Access-Control-Allow-Headers "Origin, Content-Type, Accept, Authorization" always;
+    add_header Access-Control-Allow-Headers "Origin, Content-Type, Accept, Authorization, X-CSRF-TOKEN" always;
 }
 
 # {Name} frontend static assets (Module Federation)
