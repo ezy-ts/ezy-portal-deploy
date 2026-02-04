@@ -73,6 +73,12 @@ validate_config() {
 
     load_config "$config_file"
 
+    # Also load secrets file if it exists (passwords may be stored there)
+    local secrets_file="${DEPLOY_ROOT}/portal.secrets.env"
+    if [[ -f "$secrets_file" ]]; then
+        load_config "$secrets_file"
+    fi
+
     print_subsection "Validating configuration"
 
     # Required: Database
@@ -297,6 +303,8 @@ prompt_database_config() {
 
     print_subsection "Database Configuration"
 
+    local secrets_file="${DEPLOY_ROOT}/portal.secrets.env"
+
     if [[ "$infra_mode" == "full" ]]; then
         local db_name db_user db_password
 
@@ -308,13 +316,13 @@ prompt_database_config() {
 
         echo ""
         print_info "Generating secure database password..."
-        db_password=$(generate_password_alphanum 24)
-        save_config_value "POSTGRES_PASSWORD" "$db_password" "$config_file"
-        print_success "Database password generated (saved to config file)"
+        db_password=$(generate_password_alphanum 32)
+        save_config_value "POSTGRES_PASSWORD" "$db_password" "$secrets_file"
+        print_success "Database password generated (saved to secrets file)"
 
         # Auto-generate connection string
         local conn_string="Host=postgres;Port=5432;Database=${db_name};Username=${db_user};Password=${db_password}"
-        save_config_value "ConnectionStrings__DefaultConnection" "$conn_string" "$config_file"
+        save_config_value "ConnectionStrings__DefaultConnection" "$conn_string" "$secrets_file"
 
     else
         local db_host db_port db_name db_user db_password
@@ -329,10 +337,10 @@ prompt_database_config() {
         save_config_value "POSTGRES_PORT" "$db_port" "$config_file"
         save_config_value "POSTGRES_DB" "$db_name" "$config_file"
         save_config_value "POSTGRES_USER" "$db_user" "$config_file"
-        save_config_value "POSTGRES_PASSWORD" "$db_password" "$config_file"
+        save_config_value "POSTGRES_PASSWORD" "$db_password" "$secrets_file"
 
         local conn_string="Host=${db_host};Port=${db_port};Database=${db_name};Username=${db_user};Password=${db_password}"
-        save_config_value "ConnectionStrings__DefaultConnection" "$conn_string" "$config_file"
+        save_config_value "ConnectionStrings__DefaultConnection" "$conn_string" "$secrets_file"
     fi
 }
 
@@ -369,27 +377,31 @@ prompt_rabbitmq_config() {
 
     print_subsection "RabbitMQ Configuration"
 
+    local secrets_file="${DEPLOY_ROOT}/portal.secrets.env"
+
     if [[ "$infra_mode" == "full" ]]; then
         print_info "RabbitMQ will be deployed as a container"
 
         local rmq_user rmq_password
         prompt_input "RabbitMQ user" "portal" rmq_user
-        rmq_password=$(generate_password_alphanum 24)
+        rmq_password=$(generate_password_alphanum 32)
 
-        # Docker container variables
+        # Non-sensitive settings to config file
         save_config_value "RABBITMQ_HOST" "rabbitmq" "$config_file"
         save_config_value "RABBITMQ_PORT" "5672" "$config_file"
         save_config_value "RABBITMQ_USER" "$rmq_user" "$config_file"
-        save_config_value "RABBITMQ_PASSWORD" "$rmq_password" "$config_file"
         save_config_value "RABBITMQ_DEFAULT_USER" "$rmq_user" "$config_file"
-        save_config_value "RABBITMQ_DEFAULT_PASS" "$rmq_password" "$config_file"
+
+        # Sensitive settings to secrets file
+        save_config_value "RABBITMQ_PASSWORD" "$rmq_password" "$secrets_file"
+        save_config_value "RABBITMQ_DEFAULT_PASS" "$rmq_password" "$secrets_file"
 
         # Application settings (for .NET apps)
         save_config_value "RabbitMq__Enabled" "true" "$config_file"
         save_config_value "RabbitMq__Host" "rabbitmq" "$config_file"
         save_config_value "RabbitMq__Port" "5672" "$config_file"
         save_config_value "RabbitMq__User" "$rmq_user" "$config_file"
-        save_config_value "RabbitMq__Password" "$rmq_password" "$config_file"
+        save_config_value "RabbitMq__Password" "$rmq_password" "$secrets_file"
         save_config_value "RabbitMq__VirtualHost" "/" "$config_file"
 
         print_success "RabbitMQ password generated"
@@ -398,21 +410,23 @@ prompt_rabbitmq_config() {
 
         prompt_input "RabbitMQ host" "localhost" rmq_host
         prompt_input "RabbitMQ port" "5672" rmq_port
-        prompt_input "RabbitMQ user" "guest" rmq_user
+        prompt_input "RabbitMQ user" "portal" rmq_user
         prompt_password "RabbitMQ password" rmq_password
 
-        # Docker/external variables
+        # Non-sensitive to config file
         save_config_value "RABBITMQ_HOST" "$rmq_host" "$config_file"
         save_config_value "RABBITMQ_PORT" "$rmq_port" "$config_file"
         save_config_value "RABBITMQ_USER" "$rmq_user" "$config_file"
-        save_config_value "RABBITMQ_PASSWORD" "$rmq_password" "$config_file"
+
+        # Sensitive to secrets file
+        save_config_value "RABBITMQ_PASSWORD" "$rmq_password" "$secrets_file"
 
         # Application settings (for .NET apps)
         save_config_value "RabbitMq__Enabled" "true" "$config_file"
         save_config_value "RabbitMq__Host" "$rmq_host" "$config_file"
         save_config_value "RabbitMq__Port" "$rmq_port" "$config_file"
         save_config_value "RabbitMq__User" "$rmq_user" "$config_file"
-        save_config_value "RabbitMq__Password" "$rmq_password" "$config_file"
+        save_config_value "RabbitMq__Password" "$rmq_password" "$secrets_file"
         save_config_value "RabbitMq__VirtualHost" "/" "$config_file"
     fi
 }
@@ -611,6 +625,7 @@ prompt_features_config() {
 
 create_default_config() {
     local config_file="${DEPLOY_ROOT}/portal.env"
+    local secrets_file="${DEPLOY_ROOT}/portal.secrets.env"
     local infra_mode="${1:-full}"
 
     if [[ "$infra_mode" == "full" ]]; then
@@ -619,26 +634,33 @@ create_default_config() {
         cp "${DEPLOY_ROOT}/config/portal.env.external-infra" "$config_file"
     fi
 
+    # Initialize secrets file
+    cat > "$secrets_file" << 'HEADER'
+# =============================================================================
+# EZY Portal - Secrets (AUTO-GENERATED - DO NOT COMMIT)
+# =============================================================================
+# This file contains sensitive credentials. Keep it secure (chmod 600).
+# =============================================================================
+HEADER
+
     # Generate secure passwords
     local db_password rmq_password
-    db_password=$(generate_password_alphanum 24)
-    rmq_password=$(generate_password_alphanum 24)
+    db_password=$(generate_password_alphanum 32)
+    rmq_password=$(generate_password_alphanum 32)
 
-    save_config_value "POSTGRES_PASSWORD" "$db_password" "$config_file"
-    save_config_value "RABBITMQ_PASSWORD" "$rmq_password" "$config_file"
-    save_config_value "RABBITMQ_DEFAULT_PASS" "$rmq_password" "$config_file"
+    # Secrets go to secrets file
+    save_config_value "POSTGRES_PASSWORD" "$db_password" "$secrets_file"
+    save_config_value "RABBITMQ_PASSWORD" "$rmq_password" "$secrets_file"
+    save_config_value "RABBITMQ_DEFAULT_PASS" "$rmq_password" "$secrets_file"
+    save_config_value "RabbitMq__Password" "$rmq_password" "$secrets_file"
+    save_config_value "ConnectionStrings__DefaultConnection" "Host=postgres;Port=5432;Database=portal;Username=postgres;Password=${db_password}" "$secrets_file"
 
-    # RabbitMQ application settings (for .NET apps)
+    # Non-secret RabbitMQ app settings go to config file
     save_config_value "RabbitMq__Enabled" "true" "$config_file"
     save_config_value "RabbitMq__Host" "rabbitmq" "$config_file"
     save_config_value "RabbitMq__Port" "5672" "$config_file"
     save_config_value "RabbitMq__User" "portal" "$config_file"
-    save_config_value "RabbitMq__Password" "$rmq_password" "$config_file"
     save_config_value "RabbitMq__VirtualHost" "/" "$config_file"
-
-    # Update connection string
-    local conn_string="Host=postgres;Port=5432;Database=portal;Username=postgres;Password=${db_password}"
-    save_config_value "ConnectionStrings__DefaultConnection" "$conn_string" "$config_file"
 
     # Feature flags - enable by default
     save_config_value "ADVANCED_SEARCH_ENABLED" "true" "$config_file"
@@ -650,7 +672,11 @@ create_default_config() {
     save_config_value "CLAMAV_PORT" "3310" "$config_file"
     save_config_value "CLAMAV_FAIL_OPEN" "false" "$config_file"
 
+    # Secure the secrets file
+    chmod 600 "$secrets_file"
+
     print_success "Default configuration created: $config_file"
+    print_success "Secrets file created: $secrets_file (chmod 600)"
     print_warning "Please edit the configuration file to set:"
     print_info "  - ADMIN_EMAIL"
     print_info "  - APPLICATION_URL"

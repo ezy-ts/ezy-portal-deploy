@@ -4,6 +4,8 @@
 
 # Configuration files with secrets
 portal.env
+portal.secrets.env
+*.secrets.env
 *.env
 !config/*.template
 !scripts/certbot/*.env.example

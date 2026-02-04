@@ -137,10 +137,16 @@ backup_config() {
 
     local files_backed=0
 
-    # Backup portal.env
+    # Backup portal.env (non-sensitive config only)
     if [[ -f "${DEPLOY_ROOT}/portal.env" ]]; then
         cp "${DEPLOY_ROOT}/portal.env" "$backup_path/"
         ((files_backed++))
+    fi
+
+    # NOTE: portal.secrets.env is intentionally NOT backed up here.
+    # Secrets should be managed separately and not stored in backup directories.
+    if [[ -f "${DEPLOY_ROOT}/portal.secrets.env" ]]; then
+        print_warning "portal.secrets.env was NOT backed up (by design). Manage secrets separately."
     fi
 
     # Backup SSL certificates

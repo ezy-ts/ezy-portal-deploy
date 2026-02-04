@@ -30,6 +30,7 @@ services:
       - "8080"
     env_file:
       - ../portal.env
+      - ../portal.secrets.env
     volumes:
       - portal-uploads:/app/uploads
       - portal-logs:/app/logs

@@ -224,13 +224,26 @@ generate_module_image_vars() {
     done
 }
 
+# Build --env-file arguments for docker compose, including portal.secrets.env if it exists
+_build_env_file_args() {
+    local env_file="${1:-${DEPLOY_ROOT}/portal.env}"
+    local secrets_file="${DEPLOY_ROOT}/portal.secrets.env"
+    local args="--env-file $env_file"
+    if [[ -f "$secrets_file" ]]; then
+        args="$args --env-file $secrets_file"
+    fi
+    echo "$args"
+}
+
 docker_compose_up() {
     local compose_file="$1"
     local env_file="${2:-${DEPLOY_ROOT}/portal.env}"
     local services="${3:-}"
     local pull_policy="${4:-}"
 
-    local cmd="docker compose -f $compose_file --env-file $env_file up -d"
+    local env_args
+    env_args=$(_build_env_file_args "$env_file")
+    local cmd="docker compose -f $compose_file $env_args up -d"
 
     # Add --pull always if requested (use for 'latest' tags)
     if [[ "$pull_policy" == "always" ]]; then
@@ -258,7 +271,9 @@ docker_compose_down() {
     local env_file="${2:-${DEPLOY_ROOT}/portal.env}"
     local remove_volumes="${3:-false}"
 
-    local cmd="docker compose -f $compose_file --env-file $env_file down"
+    local env_args
+    env_args=$(_build_env_file_args "$env_file")
+    local cmd="docker compose -f $compose_file $env_args down"
 
     if [[ "$remove_volumes" == "true" ]]; then
         cmd="$cmd -v"
@@ -282,7 +297,9 @@ docker_compose_restart() {
     local env_file="${2:-${DEPLOY_ROOT}/portal.env}"
     local service="${3:-}"
 
-    local cmd="docker compose -f $compose_file --env-file $env_file restart"
+    local env_args
+    env_args=$(_build_env_file_args "$env_file")
+    local cmd="docker compose -f $compose_file $env_args restart"
 
     if [[ -n "$service" ]]; then
         cmd="$cmd $service"
@@ -303,9 +320,11 @@ docker_compose_pull() {
     local compose_file="$1"
     local env_file="${2:-${DEPLOY_ROOT}/portal.env}"
 
+    local env_args
+    env_args=$(_build_env_file_args "$env_file")
     print_info "Pulling images defined in compose file..."
 
-    if docker compose -f "$compose_file" --env-file "$env_file" pull; then
+    if eval "docker compose -f $compose_file $env_args pull"; then
         print_success "Images pulled"
         return 0
     else
@@ -337,7 +356,9 @@ docker_compose_ps() {
     local compose_file="$1"
     local env_file="${2:-${DEPLOY_ROOT}/portal.env}"
 
-    docker compose -f "$compose_file" --env-file "$env_file" ps
+    local env_args
+    env_args=$(_build_env_file_args "$env_file")
+    eval "docker compose -f $compose_file $env_args ps"
 }
 
 # -----------------------------------------------------------------------------

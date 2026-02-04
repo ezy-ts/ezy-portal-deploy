@@ -205,13 +205,13 @@ check_command_exists() {
 }
 
 generate_password() {
-    local length="${1:-24}"
+    local length="${1:-32}"
     # Generate secure random password (alphanumeric + special chars)
     tr -dc 'A-Za-z0-9!@#$%^&*()_+=' < /dev/urandom | head -c "$length"
 }
 
 generate_password_alphanum() {
-    local length="${1:-24}"
+    local length="${1:-32}"
     # Generate secure random password (alphanumeric only - safer for env vars)
     tr -dc 'A-Za-z0-9' < /dev/urandom | head -c "$length"
 }

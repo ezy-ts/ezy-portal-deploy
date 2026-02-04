@@ -837,7 +837,11 @@ start_customer_module() {
     print_info "Starting customer module: $module_name"
 
     # Use --no-recreate to avoid touching existing containers
-    local cmd="docker compose $compose_args --env-file ${DEPLOY_ROOT}/portal.env up -d --no-recreate $module_name"
+    local env_args="--env-file ${DEPLOY_ROOT}/portal.env"
+    if [[ -f "${DEPLOY_ROOT}/portal.secrets.env" ]]; then
+        env_args="$env_args --env-file ${DEPLOY_ROOT}/portal.secrets.env"
+    fi
+    local cmd="docker compose $compose_args $env_args up -d --no-recreate $module_name"
     log_info "Running: $cmd"
 
     if eval "$cmd"; then

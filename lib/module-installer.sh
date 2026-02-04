@@ -248,7 +248,11 @@ start_standard_module() {
     print_info "Starting module: $module"
     print_info "Image: $image:$version"
 
-    local cmd="docker compose $compose_args --env-file ${DEPLOY_ROOT}/portal.env up -d --no-recreate $module"
+    local env_args="--env-file ${DEPLOY_ROOT}/portal.env"
+    if [[ -f "${DEPLOY_ROOT}/portal.secrets.env" ]]; then
+        env_args="$env_args --env-file ${DEPLOY_ROOT}/portal.secrets.env"
+    fi
+    local cmd="docker compose $compose_args $env_args up -d --no-recreate $module"
     debug "Running: $cmd"
     log_info "Running: $cmd"
 
