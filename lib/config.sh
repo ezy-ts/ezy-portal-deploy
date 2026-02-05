@@ -197,6 +197,12 @@ run_config_wizard() {
     # Feature flags
     prompt_features_config "$config_file"
 
+    # Session security policy (SEC-36)
+    prompt_session_policy_config "$config_file"
+
+    # Rate limit policy (SEC-37)
+    prompt_rate_limit_policy_config "$config_file"
+
     echo ""
     print_success "Configuration saved to: $config_file"
 
@@ -619,6 +625,135 @@ prompt_features_config() {
     print_success "Features configured"
 }
 
+prompt_session_policy_config() {
+    local config_file="$1"
+
+    print_subsection "Session Security Policy (SEC-36)"
+
+    echo ""
+    print_info "Choose a session security profile:"
+    echo ""
+    echo "  1. Default (Recommended for most deployments)" >&2
+    echo "     - 8-hour session cookies, 7-day refresh tokens" >&2
+    echo "     - No idle timeout (Gmail-like experience)" >&2
+    echo "" >&2
+    echo "  2. ISO 27002 Compliance" >&2
+    echo "     - 4-hour session cookies, 1-day refresh tokens" >&2
+    echo "     - 30-minute mandatory idle timeout" >&2
+    echo "" >&2
+
+    local choice
+    while true; do
+        read -p "$(echo -e "${CYAN}Select profile [1/2]:${NC} ")" choice >&2
+        case "$choice" in
+            1)
+                save_config_value "SESSION_COOKIE_HOURS" "8" "$config_file"
+                save_config_value "REFRESH_TOKEN_DAYS" "7" "$config_file"
+
+                # Ask about optional idle timeout
+                echo "" >&2
+                if confirm "Enable idle timeout? (session expires after inactivity)" "n"; then
+                    local idle_timeout
+                    prompt_input "Idle timeout in minutes" "15" idle_timeout
+                    save_config_value "SESSION_IDLE_TIMEOUT_MINUTES" "$idle_timeout" "$config_file"
+                    print_success "Idle timeout set to ${idle_timeout} minutes"
+                else
+                    save_config_value "SESSION_IDLE_TIMEOUT_MINUTES" "0" "$config_file"
+                    print_info "Idle timeout disabled"
+                fi
+                break
+                ;;
+            2)
+                save_config_value "SESSION_COOKIE_HOURS" "4" "$config_file"
+                save_config_value "REFRESH_TOKEN_DAYS" "1" "$config_file"
+                save_config_value "SESSION_IDLE_TIMEOUT_MINUTES" "30" "$config_file"
+                print_success "ISO 27002 profile: 4h session, 1-day refresh, 30-min idle timeout"
+                break
+                ;;
+            *)
+                print_error "Please enter 1 or 2"
+                ;;
+        esac
+    done
+
+    print_success "Session policy configured"
+}
+
+prompt_rate_limit_policy_config() {
+    local config_file="$1"
+
+    print_subsection "Rate Limit Policy (SEC-37)"
+
+    echo ""
+    print_info "Choose a rate limit profile for authentication endpoints:"
+    echo ""
+    echo "  1. Small deployment (1-50 users) - Defaults" >&2
+    echo "     - Login: 5/min, Forgot password: 3/min" >&2
+    echo "" >&2
+    echo "  2. Medium deployment (50-500 users) - 2x" >&2
+    echo "     - Login: 10/min, Forgot password: 6/min" >&2
+    echo "" >&2
+    echo "  3. Large deployment (500+ users) - 5x" >&2
+    echo "     - Login: 25/min, Forgot password: 15/min" >&2
+    echo "" >&2
+    echo "  4. Custom - Specify your own values" >&2
+    echo "" >&2
+
+    local choice
+    while true; do
+        read -p "$(echo -e "${CYAN}Select profile [1-4]:${NC} ")" choice >&2
+        case "$choice" in
+            1)
+                save_config_value "RATE_LIMIT_LOGIN" "5" "$config_file"
+                save_config_value "RATE_LIMIT_PASSWORD_FORGOT" "3" "$config_file"
+                save_config_value "RATE_LIMIT_PASSWORD_RESET" "5" "$config_file"
+                save_config_value "RATE_LIMIT_INVITATION_ACCEPT" "5" "$config_file"
+                save_config_value "RATE_LIMIT_SESSION_REFRESH" "10" "$config_file"
+                print_success "Small deployment rate limits configured"
+                break
+                ;;
+            2)
+                save_config_value "RATE_LIMIT_LOGIN" "10" "$config_file"
+                save_config_value "RATE_LIMIT_PASSWORD_FORGOT" "6" "$config_file"
+                save_config_value "RATE_LIMIT_PASSWORD_RESET" "10" "$config_file"
+                save_config_value "RATE_LIMIT_INVITATION_ACCEPT" "10" "$config_file"
+                save_config_value "RATE_LIMIT_SESSION_REFRESH" "20" "$config_file"
+                print_success "Medium deployment rate limits configured"
+                break
+                ;;
+            3)
+                save_config_value "RATE_LIMIT_LOGIN" "25" "$config_file"
+                save_config_value "RATE_LIMIT_PASSWORD_FORGOT" "15" "$config_file"
+                save_config_value "RATE_LIMIT_PASSWORD_RESET" "25" "$config_file"
+                save_config_value "RATE_LIMIT_INVITATION_ACCEPT" "25" "$config_file"
+                save_config_value "RATE_LIMIT_SESSION_REFRESH" "50" "$config_file"
+                print_success "Large deployment rate limits configured"
+                break
+                ;;
+            4)
+                local val
+                prompt_input "Login requests per minute" "5" val
+                save_config_value "RATE_LIMIT_LOGIN" "$val" "$config_file"
+                prompt_input "Forgot password requests per minute" "3" val
+                save_config_value "RATE_LIMIT_PASSWORD_FORGOT" "$val" "$config_file"
+                prompt_input "Password reset requests per minute" "5" val
+                save_config_value "RATE_LIMIT_PASSWORD_RESET" "$val" "$config_file"
+                prompt_input "Invitation accept requests per minute" "5" val
+                save_config_value "RATE_LIMIT_INVITATION_ACCEPT" "$val" "$config_file"
+                prompt_input "Session refresh requests per minute" "10" val
+                save_config_value "RATE_LIMIT_SESSION_REFRESH" "$val" "$config_file"
+                print_success "Custom rate limits configured"
+                break
+                ;;
+            *)
+                print_error "Please enter 1, 2, 3, or 4"
+                ;;
+        esac
+    done
+
+    print_success "Rate limit policy configured"
+}
+
 # -----------------------------------------------------------------------------
 # Quick Setup (Non-Interactive)
 # -----------------------------------------------------------------------------
@@ -671,6 +806,18 @@ HEADER
     save_config_value "CLAMAV_HOST" "clamav" "$config_file"
     save_config_value "CLAMAV_PORT" "3310" "$config_file"
     save_config_value "CLAMAV_FAIL_OPEN" "false" "$config_file"
+
+    # Session policy - defaults (SEC-36)
+    save_config_value "SESSION_COOKIE_HOURS" "8" "$config_file"
+    save_config_value "REFRESH_TOKEN_DAYS" "7" "$config_file"
+    save_config_value "SESSION_IDLE_TIMEOUT_MINUTES" "0" "$config_file"
+
+    # Rate limit policy - defaults (SEC-37)
+    save_config_value "RATE_LIMIT_LOGIN" "5" "$config_file"
+    save_config_value "RATE_LIMIT_PASSWORD_FORGOT" "3" "$config_file"
+    save_config_value "RATE_LIMIT_PASSWORD_RESET" "5" "$config_file"
+    save_config_value "RATE_LIMIT_INVITATION_ACCEPT" "5" "$config_file"
+    save_config_value "RATE_LIMIT_SESSION_REFRESH" "10" "$config_file"
 
     # Secure the secrets file
     chmod 600 "$secrets_file"
