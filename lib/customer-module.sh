@@ -643,7 +643,10 @@ download_release_asset() {
     print_info "Downloading release asset using GitHub API..." >&2
 
     if [[ -z "${GITHUB_PAT:-}" ]]; then
-        print_error "GITHUB_PAT is required to download from private repositories" >&2
+        type resolve_github_token &>/dev/null && resolve_github_token
+    fi
+    if [[ -z "${GITHUB_PAT:-}" ]]; then
+        print_error "GitHub authentication required to download from private repositories (set GITHUB_PAT or run: gh auth login)" >&2
         return 1
     fi
 
@@ -1094,7 +1097,10 @@ download_customer_frontend() {
         local api_url="https://api.github.com/repos/${repo}/releases/tags/v${version}"
 
         if [[ -z "${GITHUB_PAT:-}" ]]; then
-            print_error "GITHUB_PAT is required to download from private repositories"
+            type resolve_github_token &>/dev/null && resolve_github_token
+        fi
+        if [[ -z "${GITHUB_PAT:-}" ]]; then
+            print_error "GitHub authentication required to download from private repositories (set GITHUB_PAT or run: gh auth login)"
             return 1
         fi
 

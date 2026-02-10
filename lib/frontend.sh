@@ -24,7 +24,10 @@ get_latest_frontend_version() {
     local repo="${1:-$FRONTEND_REPO}"
 
     if [[ -z "${GITHUB_PAT:-}" ]]; then
-        print_error "GITHUB_PAT is required to fetch release information"
+        type resolve_github_token &>/dev/null && resolve_github_token
+    fi
+    if [[ -z "${GITHUB_PAT:-}" ]]; then
+        print_error "GitHub authentication required to fetch release information (set GITHUB_PAT or run: gh auth login)"
         return 1
     fi
 
@@ -123,7 +126,10 @@ download_frontend() {
         local api_url="https://api.github.com/repos/${repo}/releases/tags/v${version}"
 
         if [[ -z "${GITHUB_PAT:-}" ]]; then
-            print_error "GITHUB_PAT is required to download from private repositories"
+            type resolve_github_token &>/dev/null && resolve_github_token
+        fi
+        if [[ -z "${GITHUB_PAT:-}" ]]; then
+            print_error "GitHub authentication required to download from private repositories (set GITHUB_PAT or run: gh auth login)"
             return 1
         fi
 
@@ -264,7 +270,10 @@ download_mff_module() {
         local api_url="https://api.github.com/repos/${repo}/releases/tags/v${version}"
 
         if [[ -z "${GITHUB_PAT:-}" ]]; then
-            print_error "GITHUB_PAT is required to download from private repositories"
+            type resolve_github_token &>/dev/null && resolve_github_token
+        fi
+        if [[ -z "${GITHUB_PAT:-}" ]]; then
+            print_error "GitHub authentication required to download from private repositories (set GITHUB_PAT or run: gh auth login)"
             return 1
         fi
 

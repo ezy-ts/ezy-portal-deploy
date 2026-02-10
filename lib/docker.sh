@@ -45,9 +45,14 @@ FULL_IMAGE="${REGISTRY}/${GITHUB_ORG}/${IMAGE_NAME}"
 docker_login_ghcr() {
     local username="${GITHUB_USERNAME:-$GITHUB_ORG}"
 
+    # Try to resolve token from GITHUB_PAT or gh CLI
     if [[ -z "${GITHUB_PAT:-}" ]]; then
-        print_error "GITHUB_PAT is not set"
-        return 1
+        if type resolve_github_token &>/dev/null && resolve_github_token; then
+            : # GITHUB_PAT now exported by resolve_github_token
+        else
+            print_error "GitHub authentication not found (set GITHUB_PAT or run: gh auth login)"
+            return 1
+        fi
     fi
 
     print_info "Logging in to GitHub Container Registry..."

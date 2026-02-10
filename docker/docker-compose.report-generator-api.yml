@@ -18,7 +18,8 @@ services:
       - ../report-generator/logs/api:/app/logs
     env_file:
       - ../portal.env
-      - ../portal.secrets.env
+      - path: ../portal.secrets.env
+        required: false
     environment:
       - ASPNETCORE_ENVIRONMENT=${ASPNETCORE_ENVIRONMENT:-Production}
       - ASPNETCORE_URLS=http://+:5127

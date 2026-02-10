@@ -112,6 +112,39 @@ check_jq_installed() {
 # GitHub Container Registry Checks
 # -----------------------------------------------------------------------------
 
+resolve_github_token() {
+    # If GITHUB_PAT is already set, use it
+    if [[ -n "${GITHUB_PAT:-}" ]]; then
+        return 0
+    fi
+
+    # Try to get token from gh CLI
+    if command -v gh &>/dev/null && gh auth status &>/dev/null 2>&1; then
+        local gh_token
+        gh_token=$(gh auth token 2>/dev/null)
+        if [[ -n "$gh_token" ]]; then
+            export GITHUB_PAT="$gh_token"
+            export _GITHUB_TOKEN_SOURCE="gh"
+            return 0
+        fi
+    fi
+
+    return 1
+}
+
+# Check if gh CLI token has read:packages scope (needed for ghcr.io)
+check_gh_packages_scope() {
+    if ! command -v gh &>/dev/null; then
+        return 1
+    fi
+    local scopes
+    scopes=$(gh auth status 2>&1 | grep "Token scopes" || true)
+    if echo "$scopes" | grep -q "read:packages\|write:packages"; then
+        return 0
+    fi
+    return 1
+}
+
 check_github_pat() {
     # Skip GITHUB_PAT check if using local images
     if [[ "${USE_LOCAL_IMAGES:-false}" == "true" ]]; then
@@ -119,20 +152,43 @@ check_github_pat() {
         return 0
     fi
 
-    if [[ -z "${GITHUB_PAT:-}" ]]; then
-        print_error "GITHUB_PAT environment variable is not set"
-        echo ""
-        print_info "To pull images from GitHub Container Registry, you need a Personal Access Token"
-        print_info "1. Go to: https://github.com/settings/tokens"
-        print_info "2. Generate a new token with 'read:packages' scope"
-        print_info "3. Set the environment variable:"
-        echo ""
-        echo "   export GITHUB_PAT=ghp_your_token_here"
-        echo ""
-        return 1
+    # Remember if GITHUB_PAT was already set before resolve
+    local had_pat="${GITHUB_PAT:+yes}"
+
+    # Try to resolve token from GITHUB_PAT or gh CLI
+    if resolve_github_token; then
+        if [[ -z "$had_pat" ]]; then
+            # Token came from gh CLI - check if it has read:packages scope
+            if ! check_gh_packages_scope; then
+                print_warning "gh CLI token is missing 'read:packages' scope (needed for Docker image pulls)"
+                print_info "Add the scope with:"
+                echo "   gh auth refresh -s read:packages"
+                echo ""
+                return 1
+            fi
+            print_success "Using GitHub token from gh CLI auth"
+        else
+            print_success "GITHUB_PAT is set"
+        fi
+        return 0
     fi
-    print_success "GITHUB_PAT is set"
-    return 0
+
+    print_error "GitHub authentication not found"
+    echo ""
+    print_info "Authenticate with GitHub using one of these methods:"
+    echo ""
+    print_info "Option 1: Login with gh CLI (recommended)"
+    echo "   gh auth login"
+    echo "   gh auth refresh -s read:packages   # if not prompted for packages scope"
+    echo ""
+    print_info "Option 2: Set a Personal Access Token"
+    print_info "1. Go to: https://github.com/settings/tokens"
+    print_info "2. Generate a new token with 'read:packages' scope"
+    print_info "3. Set the environment variable:"
+    echo ""
+    echo "   export GITHUB_PAT=ghp_your_token_here"
+    echo ""
+    return 1
 }
 
 check_ghcr_login() {

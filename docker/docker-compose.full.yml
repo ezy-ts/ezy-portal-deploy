@@ -25,7 +25,8 @@ services:
       - "8080"
     env_file:
       - ../portal.env
-      - ../portal.secrets.env
+      - path: ../portal.secrets.env
+        required: false
     environment:
       - MODULES=${MODULES:-portal}
     volumes:

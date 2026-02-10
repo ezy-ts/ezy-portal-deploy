@@ -19,7 +19,8 @@ services:
       - ../report-generator/logs/service:/app/logs
     env_file:
       - ../portal.env
-      - ../portal.secrets.env
+      - path: ../portal.secrets.env
+        required: false
     environment:
       - ASPNETCORE_ENVIRONMENT=${ASPNETCORE_ENVIRONMENT:-Production}
       # Map portal.env Email__* to EmailServer__*

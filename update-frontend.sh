@@ -102,11 +102,8 @@ main() {
     print_section "Checking Prerequisites"
 
     if ! check_github_pat; then
-        print_error "GITHUB_PAT is required"
-        print_info "Set it with: export GITHUB_PAT=ghp_your_token"
         exit 1
     fi
-    print_success "GitHub PAT configured"
 
     # Get current and latest versions
     print_section "Version Information"
