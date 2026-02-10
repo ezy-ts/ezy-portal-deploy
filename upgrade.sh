@@ -47,6 +47,9 @@ PROJECT_NAME="${PROJECT_NAME:-ezy-portal}"
 SKIP_BACKUP=false
 DO_ROLLBACK=false
 FORCE=false
+UPGRADE_MODULES=""          # Empty = upgrade all; comma-separated = selective
+SKIP_FRONTEND=false
+ONLY_FRONTEND=false
 
 # -----------------------------------------------------------------------------
 # Parse Command Line Arguments
@@ -80,6 +83,19 @@ parse_arguments() {
                 FORCE=true
                 shift
                 ;;
+            --module)
+                UPGRADE_MODULES="$2"
+                SKIP_FRONTEND=true
+                shift 2
+                ;;
+            --only-frontend)
+                ONLY_FRONTEND=true
+                shift
+                ;;
+            --skip-frontend)
+                SKIP_FRONTEND=true
+                shift
+                ;;
             --help|-h)
                 show_help
                 exit 0
@@ -102,20 +118,29 @@ show_help() {
     echo "  --version VERSION          Upgrade both backend and frontend to specific version (default: latest)"
     echo "  --backend-version VERSION  Upgrade backend to specific version"
     echo "  --frontend-version VERSION Upgrade frontend to specific version"
+    echo "  --module MODULE[,MODULE]   Upgrade specific module(s) only (e.g., --module crm or --module bp,items)"
+    echo "  --only-frontend            Only upgrade frontend, skip backend/modules"
+    echo "  --skip-frontend            Skip frontend upgrade, only upgrade backend/modules"
     echo "  --skip-backup              Skip backup before upgrade (not recommended)"
     echo "  --rollback                 Rollback to previous version from backup"
     echo "  --force                    Force upgrade even if same version"
     echo "  --help, -h                 Show this help message"
     echo ""
     echo "Examples:"
-    echo "  # Upgrade to latest"
+    echo "  # Upgrade everything to latest"
     echo "  ./upgrade.sh"
     echo ""
     echo "  # Upgrade to specific version"
     echo "  ./upgrade.sh --version 1.0.2"
     echo ""
     echo "  # Upgrade only frontend"
-    echo "  ./upgrade.sh --frontend-version 1.0.3"
+    echo "  ./upgrade.sh --only-frontend --frontend-version 1.0.3"
+    echo ""
+    echo "  # Upgrade a single module"
+    echo "  ./upgrade.sh --module crm --version 1.0.2"
+    echo ""
+    echo "  # Upgrade multiple modules"
+    echo "  ./upgrade.sh --module bp,items --version 1.0.2"
     echo ""
     echo "  # Rollback to previous version"
     echo "  ./upgrade.sh --rollback"
@@ -182,7 +207,10 @@ step_compare_versions() {
     local needs_frontend_upgrade=false
 
     # Check backend version
-    if [[ "$CURRENT_BACKEND_VERSION" != "$BACKEND_VERSION" ]]; then
+    if [[ "$BACKEND_VERSION" == "latest" ]]; then
+        needs_backend_upgrade=true
+        print_info "Backend: pulling latest (will detect remote changes)"
+    elif [[ "$CURRENT_BACKEND_VERSION" != "$BACKEND_VERSION" ]]; then
         needs_backend_upgrade=true
         print_info "Backend: $CURRENT_BACKEND_VERSION -> $BACKEND_VERSION"
     else
@@ -190,7 +218,24 @@ step_compare_versions() {
     fi
 
     # Check frontend version
-    if [[ "$CURRENT_FRONTEND_VERSION" != "$FRONTEND_VERSION" ]]; then
+    # Frontend is a GitHub release artifact, so resolve 'latest' to actual version for comparison
+    if [[ "$FRONTEND_VERSION" == "latest" ]]; then
+        print_info "Checking latest frontend release..."
+        local resolved_frontend
+        resolved_frontend=$(get_latest_frontend_version 2>/dev/null || true)
+        if [[ -n "$resolved_frontend" ]]; then
+            if [[ "$CURRENT_FRONTEND_VERSION" != "$resolved_frontend" ]]; then
+                needs_frontend_upgrade=true
+                print_info "Frontend: $CURRENT_FRONTEND_VERSION -> $resolved_frontend (latest)"
+            else
+                print_info "Frontend: already at latest ($resolved_frontend)"
+            fi
+        else
+            # Can't resolve, assume upgrade needed
+            needs_frontend_upgrade=true
+            print_warning "Frontend: could not resolve latest version, will attempt upgrade"
+        fi
+    elif [[ "$CURRENT_FRONTEND_VERSION" != "$FRONTEND_VERSION" ]]; then
         needs_frontend_upgrade=true
         print_info "Frontend: $CURRENT_FRONTEND_VERSION -> $FRONTEND_VERSION"
     else
@@ -210,9 +255,113 @@ step_compare_versions() {
         fi
     fi
 
+    # Interactive component selection (skip if --module or --only-frontend was specified)
+    if [[ -z "$UPGRADE_MODULES" ]] && [[ "$ONLY_FRONTEND" != true ]]; then
+        step_select_components
+    fi
+
     if ! confirm "Proceed with upgrade?" "y"; then
         print_info "Upgrade cancelled"
         exit 0
+    fi
+}
+
+step_select_components() {
+    print_subsection "Select Components to Upgrade"
+    echo ""
+
+    # Build the list of available components
+    local -a component_names=()
+    local -a component_labels=()
+    local -a component_selected=()
+
+    # Portal backend is always first
+    component_names+=("portal")
+    component_labels+=("Portal Backend")
+    component_selected+=(true)
+
+    # Add each module
+    IFS=',' read -ra module_array <<< "${MODULES:-portal}"
+    for module in "${module_array[@]}"; do
+        module=$(echo "$module" | xargs)
+        if [[ "$module" != "portal" && -n "$module" ]]; then
+            component_names+=("$module")
+            component_labels+=("$module")
+            component_selected+=(true)
+        fi
+    done
+
+    # Frontend
+    component_names+=("frontend")
+    component_labels+=("Frontend")
+    component_selected+=(true)
+
+    # Display the checklist
+    echo "  Components available for upgrade:"
+    echo ""
+    for i in "${!component_names[@]}"; do
+        local marker="x"
+        printf "  [%s] %d) %s\n" "$marker" $((i + 1)) "${component_labels[$i]}"
+    done
+    echo ""
+    echo "  Enter numbers to toggle (e.g., 1 3 5), 'a' for all, or press Enter to keep all:"
+    read -rp "  > " selection
+
+    if [[ -n "$selection" && "$selection" != "a" ]]; then
+        # Deselect all first
+        for i in "${!component_selected[@]}"; do
+            component_selected[$i]=false
+        done
+        # Select only the ones the user picked
+        for num in $selection; do
+            local idx=$((num - 1))
+            if [[ $idx -ge 0 && $idx -lt ${#component_names[@]} ]]; then
+                component_selected[$idx]=true
+            fi
+        done
+    fi
+
+    # Build the selected module list and flags
+    local selected_modules=""
+    SKIP_FRONTEND=true
+
+    echo ""
+    echo "  Upgrading:"
+    for i in "${!component_names[@]}"; do
+        if [[ "${component_selected[$i]}" == true ]]; then
+            echo "    ✓ ${component_labels[$i]}"
+            case "${component_names[$i]}" in
+                frontend)
+                    SKIP_FRONTEND=false
+                    ;;
+                *)
+                    if [[ -n "$selected_modules" ]]; then
+                        selected_modules="$selected_modules,${component_names[$i]}"
+                    else
+                        selected_modules="${component_names[$i]}"
+                    fi
+                    ;;
+            esac
+        else
+            echo "    - ${component_labels[$i]} (skipped)"
+        fi
+    done
+    echo ""
+
+    # If not all backend modules were selected, set UPGRADE_MODULES for selective upgrade
+    local all_modules_str="portal"
+    IFS=',' read -ra module_array <<< "${MODULES:-portal}"
+    for module in "${module_array[@]}"; do
+        module=$(echo "$module" | xargs)
+        if [[ "$module" != "portal" && -n "$module" ]]; then
+            all_modules_str="$all_modules_str,$module"
+        fi
+    done
+
+    if [[ "$selected_modules" != "$all_modules_str" ]]; then
+        if [[ -n "$selected_modules" ]]; then
+            UPGRADE_MODULES="$selected_modules"
+        fi
     fi
 }
 
@@ -247,11 +396,18 @@ step_create_backup() {
 step_pull_new_image() {
     print_section "Step 5: Pulling Backend Images"
 
-    print_info "Backend version: $BACKEND_VERSION"
-    print_info "Modules: ${MODULES:-portal}"
+    # Determine which modules to pull
+    local pull_modules="${MODULES:-portal}"
+    if [[ -n "$UPGRADE_MODULES" ]]; then
+        # Filter out nginx from pull list (it's not a custom image)
+        pull_modules=$(echo "$UPGRADE_MODULES" | sed 's/,nginx//g; s/nginx,//g; s/^nginx$//')
+    fi
 
-    # Pull images for all configured modules
-    if ! docker_pull_modules "$BACKEND_VERSION" "${MODULES:-portal}"; then
+    print_info "Backend version: $BACKEND_VERSION"
+    print_info "Modules: $pull_modules"
+
+    # Pull images for configured modules
+    if ! docker_pull_modules "$BACKEND_VERSION" "$pull_modules"; then
         print_error "Failed to pull images for backend version $BACKEND_VERSION"
 
         if [[ -n "${BACKUP_PATH:-}" ]]; then
@@ -283,26 +439,33 @@ step_stop_services() {
 
     local project_name="${PROJECT_NAME:-ezy-portal}"
 
-    # Stop all module containers, keep infrastructure running
-    print_info "Stopping module containers..."
+    # Determine which modules to stop
+    local modules_to_stop="${MODULES:-portal}"
+    if [[ -n "$UPGRADE_MODULES" ]]; then
+        modules_to_stop="$UPGRADE_MODULES"
+        print_info "Selective upgrade - stopping: $modules_to_stop"
+    else
+        print_info "Stopping all module containers..."
+    fi
 
-    # Stop main portal
-    docker stop "${project_name}" 2>/dev/null || true
-    docker rm "${project_name}" 2>/dev/null || true
-
-    # Stop module containers based on MODULES config
-    IFS=',' read -ra module_array <<< "${MODULES:-portal}"
+    IFS=',' read -ra module_array <<< "$modules_to_stop"
     for module in "${module_array[@]}"; do
         module=$(echo "$module" | xargs)
-        if [[ "$module" != "portal" && -n "$module" ]]; then
+        if [[ -z "$module" ]]; then continue; fi
+
+        if [[ "$module" == "portal" ]]; then
+            local container="${project_name}"
+        elif [[ "$module" == "nginx" ]]; then
+            local container="${project_name}-nginx"
+        else
             local container="${project_name}-${module}"
-            print_info "Stopping $container..."
-            docker stop "$container" 2>/dev/null || true
-            docker rm "$container" 2>/dev/null || true
         fi
+        print_info "Stopping $container..."
+        docker stop "$container" 2>/dev/null || true
+        docker rm "$container" 2>/dev/null || true
     done
 
-    print_success "Module containers stopped"
+    print_success "Containers stopped"
 }
 
 step_start_new_version() {
@@ -324,18 +487,43 @@ step_start_new_version() {
     local compose_args
     compose_args=$(get_compose_files_for_modules "$INFRASTRUCTURE_MODE" "${MODULES:-portal}")
 
+    # Build env-file args (includes portal.secrets.env if it exists)
+    local env_args
+    env_args=$(_build_env_file_args "$DEPLOY_ROOT/portal.env")
+
     print_info "Starting with compose files: $compose_args"
     print_info "Infrastructure (postgres, redis, rabbitmq) will NOT be recreated"
 
     # Get list of app services to start (exclude infrastructure)
+    # Use tr to convert newlines to spaces so they don't break eval
     local app_services
-    app_services=$(docker compose $compose_args --env-file "$DEPLOY_ROOT/portal.env" config --services 2>/dev/null | grep -v -E '^(postgres|redis|rabbitmq)$' || true)
+    app_services=$(docker compose $compose_args $env_args config --services 2>/dev/null \
+        | grep -v -E '^(postgres|redis|rabbitmq|clamav)$' | tr '\n' ' ' || true)
+
+    # If upgrading specific modules, filter app_services to only those + portal + nginx
+    if [[ -n "$UPGRADE_MODULES" ]]; then
+        local filtered=""
+        IFS=',' read -ra target_modules <<< "$UPGRADE_MODULES"
+        for svc in $app_services; do
+            for mod in "${target_modules[@]}"; do
+                mod=$(echo "$mod" | xargs)
+                if [[ "$svc" == "$mod" ]]; then
+                    filtered="$filtered $svc"
+                fi
+            done
+        done
+        app_services="$filtered"
+        if [[ -z "${app_services// /}" ]]; then
+            print_error "No matching services found for modules: $UPGRADE_MODULES"
+            exit 1
+        fi
+        print_info "Selective upgrade - services: $app_services"
+    fi
 
     # Start only app services with --no-deps to avoid touching infrastructure
-    local cmd="docker compose $compose_args --env-file $DEPLOY_ROOT/portal.env up -d --no-deps --force-recreate $app_services"
-    log_info "Running: $cmd"
+    log_info "Running: docker compose $compose_args $env_args up -d --no-deps --force-recreate $app_services"
 
-    if eval "$cmd"; then
+    if docker compose $compose_args $env_args up -d --no-deps --force-recreate $app_services; then
         print_success "Services started"
     else
         print_error "Failed to start new version"
@@ -355,22 +543,28 @@ step_verify_health() {
     local timeout=180
     local failed=0
 
-    # Check main portal
-    if ! wait_for_healthy "$project_name" "$timeout"; then
-        print_error "Portal did not become healthy"
-        ((failed++))
+    # Determine which modules to check
+    local modules_to_check="${MODULES:-portal}"
+    if [[ -n "$UPGRADE_MODULES" ]]; then
+        modules_to_check="$UPGRADE_MODULES"
     fi
 
-    # Check module containers
-    IFS=',' read -ra module_array <<< "${MODULES:-portal}"
+    IFS=',' read -ra module_array <<< "$modules_to_check"
     for module in "${module_array[@]}"; do
         module=$(echo "$module" | xargs)
-        if [[ "$module" != "portal" && -n "$module" ]]; then
+        if [[ -z "$module" || "$module" == "nginx" ]]; then continue; fi
+
+        if [[ "$module" == "portal" ]]; then
+            local container="${project_name}"
+            local check_timeout=$timeout
+        else
             local container="${project_name}-${module}"
-            if ! wait_for_healthy "$container" 60; then
-                print_error "$container did not become healthy"
-                ((failed++))
-            fi
+            local check_timeout=60
+        fi
+
+        if ! wait_for_healthy "$container" "$check_timeout"; then
+            print_error "$container did not become healthy"
+            ((failed++))
         fi
     done
 
@@ -384,7 +578,7 @@ step_verify_health() {
         exit 1
     fi
 
-    print_success "All containers are healthy"
+    print_success "All upgraded containers are healthy"
 }
 
 step_cleanup() {
@@ -437,20 +631,25 @@ do_rollback() {
     local compose_args
     compose_args=$(get_compose_files_for_modules "$INFRASTRUCTURE_MODE" "${MODULES:-portal}")
 
+    # Build env-file args (includes portal.secrets.env if it exists)
+    local env_args
+    env_args=$(_build_env_file_args "$DEPLOY_ROOT/portal.env")
+
     # Get list of app services (exclude infrastructure)
     local app_services
-    app_services=$(docker compose $compose_args --env-file "$DEPLOY_ROOT/portal.env" config --services 2>/dev/null | grep -v -E '^(postgres|redis|rabbitmq)$' || true)
+    app_services=$(docker compose $compose_args $env_args config --services 2>/dev/null \
+        | grep -v -E '^(postgres|redis|rabbitmq|clamav)$' | tr '\n' ' ' || true)
 
     # Stop only app services
     print_info "Stopping app services..."
     for svc in $app_services; do
-        docker compose $compose_args --env-file "$DEPLOY_ROOT/portal.env" stop "$svc" 2>/dev/null || true
-        docker compose $compose_args --env-file "$DEPLOY_ROOT/portal.env" rm -f "$svc" 2>/dev/null || true
+        docker compose $compose_args $env_args stop "$svc" 2>/dev/null || true
+        docker compose $compose_args $env_args rm -f "$svc" 2>/dev/null || true
     done
 
     # Start app services with rolled back version
     print_info "Starting app services with rolled back version..."
-    docker compose $compose_args --env-file "$DEPLOY_ROOT/portal.env" up -d --no-deps --force-recreate $app_services
+    docker compose $compose_args $env_args up -d --no-deps --force-recreate $app_services
 
     # Restore database if needed
     if [[ -f "$backup_path/database.sql" ]]; then
@@ -521,11 +720,21 @@ main() {
     step_check_prerequisites
     step_compare_versions
     step_create_backup
-    step_pull_new_image
-    step_update_frontend
-    step_stop_services
-    step_start_new_version
-    step_verify_health
+
+    if [[ "$ONLY_FRONTEND" != true ]]; then
+        step_pull_new_image
+    fi
+
+    if [[ "$SKIP_FRONTEND" != true ]]; then
+        step_update_frontend
+    fi
+
+    if [[ "$ONLY_FRONTEND" != true ]]; then
+        step_stop_services
+        step_start_new_version
+        step_verify_health
+    fi
+
     step_cleanup
     show_success
 }
